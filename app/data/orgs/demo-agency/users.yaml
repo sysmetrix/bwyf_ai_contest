@@ -1,6 +1,0 @@
-# 담당자 목록 (관리자 화면에서 등록)
-users:
-- id: kim
-  name: 김서무
-  dept: 총무팀
-  email: kim.seomu@example.invalid
