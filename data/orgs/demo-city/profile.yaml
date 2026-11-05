@@ -1,0 +1,50 @@
+# 기관 프로필 — 관리자 화면에서 저장됨
+org:
+  id: demo-city
+  name: 가상 ○○시청
+  type: 지자체형
+  example: true
+rule_layers:
+- common
+- org
+- dept
+approval:
+  line:
+  - 담당
+  - 팀장
+  - 과장
+  - 국장
+  thresholds:
+  - max_won: 1000000
+    approver: 팀장
+  - max_won: 10000000
+    approver: 과장
+  - max_won: null
+    approver: 국장
+deadlines:
+  travel_settlement_days: 7
+  leave_request_days_before: 1
+  event_plan_days_before: 10
+  event_report_days: 7
+allowances:
+  daily_won: 20000
+sick_leave:
+  certificate_days: 6
+purchase:
+  single_quote_limit_won: 5000000
+terms:
+  여비 정산서: 여비 청구서
+  지급 요청: 지출결의
+  구매 요청서: 물품 구매 요청서
+forms:
+  travel_settlement: forms/travel_settlement.docx
+  leave_request: forms/leave_request.docx
+  purchase_request: forms/purchase_request.docx
+  travel_request: forms/travel_request.docx
+  sick_leave: forms/sick_leave.docx
+  event_plan: forms/event_plan.docx
+  draft_document: forms/draft_document.docx
+practice_notes:
+- text: 여비 청구는 매월 말일 전에 몰아서 내지 말고 복귀 즉시 내 주세요.
+  task: travel_settlement
+sources: {}

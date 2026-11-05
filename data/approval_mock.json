@@ -1,0 +1,43 @@
+{
+  "documents": {
+    "DEMO-20261105-5781": {
+      "doc_no": "DEMO-20261105-5781",
+      "state": "submitted",
+      "title": "(11.5.)세종 출장 신청 (보정됨)",
+      "contents": "출장 신청에 대하여 다음과 같이 요청합니다.\n\n  1. 기 간: 2026-11-05 ~ 2026-11-07\n  2. 장 소: 세종\n\n붙임  출장 신청(명령) 등록 각 1부.  끝.",
+      "drafter": null,
+      "approval_line": [],
+      "attachments": [],
+      "package_id": "20261105-deebd2",
+      "created": "2026-11-05T15:54:31",
+      "submitted": "2026-11-05T15:54:31"
+    },
+    "DEMO-20261105-1030": {
+      "doc_no": "DEMO-20261105-1030",
+      "state": "draft",
+      "title": "(11.5.)세종 출장 신청",
+      "contents": "출장 신청에 대하여 다음과 같이 요청합니다.\n\n  1. 기 간: 2026-11-05 ~ 2026-11-07\n  2. 장 소: 세종\n\n붙임  출장 신청(명령) 등록 각 1부.  끝.",
+      "drafter": null,
+      "approval_line": [],
+      "attachments": [
+        "20261105-155546_travel_request_초안.docx"
+      ],
+      "package_id": "20261105-a7e369",
+      "created": "2026-11-05T15:55:46"
+    },
+    "DEMO-20261105-9246": {
+      "doc_no": "DEMO-20261105-9246",
+      "state": "submitted",
+      "title": "(11.5.)출장 신청",
+      "contents": "출장 신청에 대하여 다음과 같이 요청합니다.\n\n\n붙임  출장 신청(명령) 등록 각 1부.  끝.",
+      "drafter": null,
+      "approval_line": [],
+      "attachments": [
+        "20261105-155626_travel_request_초안.docx"
+      ],
+      "package_id": "20261105-bf8e97",
+      "created": "2026-11-05T15:56:51",
+      "submitted": "2026-11-05T15:57:16"
+    }
+  }
+}

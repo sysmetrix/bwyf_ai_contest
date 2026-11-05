@@ -1,0 +1,101 @@
+{
+  "id": "20261105-fc2478",
+  "state": "draft",
+  "created": "2026-11-05T16:01:46",
+  "org_id": "demo-agency",
+  "org_name": "가상 ○○출연기관",
+  "user_id": null,
+  "message": "출장 다녀와서 정산해야 해요",
+  "task": {
+    "id": "travel_settlement",
+    "name": "출장 여비 정산",
+    "category": "출장·여비"
+  },
+  "title": "(11.5.)출장 여비 정산",
+  "body": "출장 여비 정산에 대하여 다음과 같이 요청합니다.\n\n  1. 여비 정산서 제출: 복귀일부터 5일 이내\n\n붙임  여비 정산서, 교통비 영수증, 숙박비 영수증 각 1부.  끝.",
+  "slots": {},
+  "method": "규칙(키워드)",
+  "steps": [
+    "출장 신청이 결재되었는지 확인합니다.",
+    "교통비·숙박비 영수증을 모읍니다.",
+    "복귀한 날부터 5일 이내에 여비 정산서를 작성하고 영수증을 첨부합니다.",
+    "결재를 받습니다. 결재선: 담당 → 팀장 (금액이 크면 실장·대표이사까지)",
+    "회계 담당이 지급요청을 처리하면 여비가 지급됩니다."
+  ],
+  "deadline": {
+    "label": "여비 정산서 제출",
+    "text": "복귀일부터 5일 이내",
+    "due": null,
+    "days": 5
+  },
+  "approval": {
+    "approver": null,
+    "line": [
+      "담당",
+      "팀장",
+      "실장",
+      "대표이사"
+    ],
+    "basis": "50만원 이하 팀장 / 500만원 이하 실장 / 그 이상 대표이사",
+    "amount_won": null
+  },
+  "approval_line": [],
+  "required_docs": [
+    "여비 정산서",
+    "교통비 영수증",
+    "숙박비 영수증"
+  ],
+  "evidence": [
+    {
+      "doc": null,
+      "article": null,
+      "layer": "기관 규정"
+    },
+    {
+      "doc": null,
+      "article": null,
+      "layer": "부서 보충"
+    },
+    {
+      "doc": null,
+      "article": null,
+      "layer": "공통 규정"
+    },
+    {
+      "doc": null,
+      "article": null,
+      "layer": "기관 규정"
+    }
+  ],
+  "warnings": [
+    "개인 보충(관행 메모) '정산은 복귀 후 7일 안에만 내면 됩니다.'가 규정과 다릅니다. 규정 기준은 5, 메모는 7 → 규정 기준으로 안내합니다"
+  ],
+  "attachments": [
+    {
+      "name": "여비 정산서",
+      "file": "붙임/20261105-160146_travel_settlement_초안.docx",
+      "ext": "DOCX"
+    },
+    {
+      "name": "영수증",
+      "file": "붙임/영수증.png",
+      "ext": "PNG",
+      "kind": "image",
+      "bytes": 360,
+      "added": "2026-11-05T16:01:46"
+    }
+  ],
+  "history": [
+    {
+      "at": "2026-11-05T16:01:46",
+      "state": "draft",
+      "note": "서비가 규정에서 뽑아 만들었습니다"
+    },
+    {
+      "at": "2026-11-05T16:01:46",
+      "state": "draft",
+      "note": "붙임 추가: 영수증.png"
+    }
+  ],
+  "intranet": null
+}

@@ -1,0 +1,101 @@
+{
+  "id": "20261105-a7e369",
+  "state": "staged",
+  "created": "2026-11-05T15:55:46",
+  "org_id": "demo-agency",
+  "org_name": "가상 ○○출연기관",
+  "user_id": null,
+  "message": "다음 주 세종으로 2박3일 출장 갑니다",
+  "task": {
+    "id": "travel_request",
+    "name": "출장 신청",
+    "category": "출장·여비"
+  },
+  "title": "(11.5.)세종 출장 신청",
+  "body": "출장 신청에 대하여 다음과 같이 요청합니다.\n\n  1. 기 간: 2026-11-05 ~ 2026-11-07\n  2. 장 소: 세종\n\n붙임  출장 신청(명령) 등록 각 1부.  끝.",
+  "slots": {
+    "days": 3,
+    "destination": "세종",
+    "start_date": "2026-11-05",
+    "end_date": "2026-11-07"
+  },
+  "method": "AI 모델",
+  "steps": [
+    "출장 전에 기관 시스템에 출장을 신청(등록)합니다.",
+    "결재를 받습니다. 결재선: 담당 → 팀장 (금액이 크면 실장·대표이사까지)",
+    "교통·숙박은 가능하면 법인카드로 결제하고 영수증을 보관합니다."
+  ],
+  "deadline": null,
+  "approval": {
+    "approver": null,
+    "line": [
+      "담당",
+      "팀장",
+      "실장",
+      "대표이사"
+    ],
+    "basis": "50만원 이하 팀장 / 500만원 이하 실장 / 그 이상 대표이사",
+    "amount_won": null
+  },
+  "approval_line": [],
+  "required_docs": [
+    "출장 신청(명령) 등록"
+  ],
+  "evidence": [
+    {
+      "doc": null,
+      "article": null,
+      "layer": "기관 규정"
+    },
+    {
+      "doc": null,
+      "article": null,
+      "layer": "공통 규정"
+    },
+    {
+      "doc": null,
+      "article": null,
+      "layer": "기관 규정"
+    },
+    {
+      "doc": null,
+      "article": null,
+      "layer": "기관 규정"
+    }
+  ],
+  "warnings": [],
+  "attachments": [
+    {
+      "name": "출장 신청서",
+      "file": "붙임/20261105-155546_travel_request_초안.docx",
+      "ext": "DOCX"
+    }
+  ],
+  "history": [
+    {
+      "at": "2026-11-05T15:55:46",
+      "state": "draft",
+      "note": "서비가 규정에서 뽑아 만들었습니다"
+    },
+    {
+      "at": "2026-11-05T15:55:46",
+      "state": "staged",
+      "note": "인트라넷 기안 등록(mock) 문서번호 DEMO-20261105-1030"
+    }
+  ],
+  "intranet": {
+    "ok": true,
+    "provider": "mock",
+    "doc_no": "DEMO-20261105-1030",
+    "url": "/api/approval/mock/DEMO-20261105-1030",
+    "state": "draft",
+    "error": null,
+    "seconds": 0.0,
+    "meta": {
+      "note": "가상 결재함에 임시저장했습니다. 실제 결재망으로 나가지 않았습니다.",
+      "attachments": [
+        "20261105-155546_travel_request_초안.docx"
+      ]
+    }
+  }
+}
