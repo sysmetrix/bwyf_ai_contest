@@ -24,3 +24,7 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 서무비서 실행 중 생기는 파일 (커밋하지 않음)
+app/data/approval_mock.json
+app/data/orgs/*/rules/imported/
