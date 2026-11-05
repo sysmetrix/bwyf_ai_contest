@@ -1,0 +1,27 @@
+name: Build Windows Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.15'
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Build Windows installer
+        run: python tools/build_windows.py --release --base-url "https://github.com/${{ github.repository }}/releases" --notes "Release ${{ github.ref_name }}"
+      
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ../서비_Windows설치판_*.zip
