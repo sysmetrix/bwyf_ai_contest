@@ -28,7 +28,7 @@ CLAUDE.md, GEMINI.md는 AGENTS.md를 불러오기만 합니다.
 | 이영운 (@leeknow2) | 서무비서 메인 프로그램 구축 |
 | 김지은 (@Jenna9314) | 규정·서식 정리본 제작 |
 | 김준호 (@junhohooo12-cell) | 가상 인트라넷 구축 |
-| 원하 (@sysmetrix) | 전체 총괄 |
+| 서원하 (@sysmetrix) | 전체 총괄 |
 
 ## 실행
 
