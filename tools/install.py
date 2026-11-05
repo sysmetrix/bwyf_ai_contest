@@ -144,10 +144,17 @@ def install() -> None:
     _shortcut(menu / f"{NAME} 끄기.lnk", pyw, "run.py --stop", icon, "켜져 있는 서비 끄기", minimized=False)
     _shortcut(menu / f"{NAME} 제거.lnk", py, "tools\\install.py --uninstall", icon, "서비 제거", minimized=False)
     print("  [완료] 바탕화면과 시작 메뉴에 '서비' 아이콘을 만들었습니다.")
-    print("  아이콘을 누르면 서비가 켜지고 브라우저가 열립니다.")
-    print("  켜져 있는 동안은 작업 표시줄 오른쪽 아래(시계 옆)에 서비 아이콘이 있어요.")
-    print("  끌 때는 그 아이콘을 오른쪽 클릭 → '서비 끄기'를 누르세요.\n")
-    subprocess.Popen([str(pyw), "run.py"], cwd=str(DEST))
+    print("  아이콘을 누르면 서비가 켜집니다.")
+    print("  화면 오른쪽 아래에 서비 캐릭터가 떠있어요.")
+    print("  캐릭터를 누르면 검색창이 열립니다.")
+    print("  끌 때는 캐릭터 오른쪽 클릭 → '서비 끄기'를 누르세요.\n")
+    # Desktop 앱 실행 (백엔드 서버는 자동으로 함께 시작됨)
+    desktop_app = DEST / "desktop" / "dist" / "Seobi.exe"
+    if desktop_app.exists():
+        subprocess.Popen([str(desktop_app)], cwd=str(DEST))
+    else:
+        # 빌드되지 않았으면 백엔드 서버만 실행
+        subprocess.Popen([str(pyw), "run.py"], cwd=str(DEST))
 
 
 def uninstall() -> None:
