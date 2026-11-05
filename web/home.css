@@ -862,3 +862,29 @@ body.home.shell-desktop.large.opened .h-scrollarea { padding-bottom: 34px; }
 /* 가는 쪽을 바라봅니다 */
 .h-bot[data-dir="-1"] .h-bot-svg { scale: -1 1; }
 .h-bot[data-dir="-1"] .h-face { scale: -1 1; transform-origin: 100px 86px; }
+
+/* ==================================================================
+   검색창이 답변을 가리던 문제
+   브라우저용 sticky 규칙(body.home.has-answer .h-search)이 위젯 규칙보다
+   특이도가 높아서, 패널 안에서도 검색창이 떠올라 답변 위를 덮었습니다.
+   패널은 세로 플렉스라 sticky 가 필요 없습니다. 검색창은 위에 붙은
+   일반 요소이고, 그 아래 스크롤 영역만 움직이면 됩니다.
+   ================================================================== */
+body.home.shell-desktop.opened .h-search {
+  position: static;
+  top: auto;
+  z-index: auto;
+  box-shadow: none;
+}
+body.home.shell-desktop.opened .h-hero {
+  position: static;
+  padding-top: 0;
+}
+body.home.shell-desktop.opened .h-hero::before { display: none; }
+
+/* 패널은 머리 → 검색창 → 빠른질문 → 스크롤 순서로 쌓입니다.
+   스크롤 영역만 늘어나고 나머지는 제자리를 지킵니다. */
+body.home.shell-desktop.opened .h-stage > .h-bar,
+body.home.shell-desktop.opened .h-stage > .h-search,
+body.home.shell-desktop.opened .h-stage > .h-quick { flex: none; }
+body.home.shell-desktop.opened .h-stage > .h-scrollarea { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
