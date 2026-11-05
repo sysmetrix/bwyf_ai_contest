@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>서식 보관함</title>
+<link rel="stylesheet" href="app.css?v=21">
+</head>
+<body>
+<header class="top"></header>
+<div class="wrap">
+  <div class="card" style="margin-bottom:16px">
+    <div class="field"><label for="org">기관</label><select id="org" style="max-width:320px"></select></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div>
+        <h2>서식 보관함</h2>
+        <p class="muted" style="margin:0 0 16px">기관 서식을 .docx 또는 .hwpx로 올려 두면, 서비 질문으로 바로 초안을 채울 수 있어요. 서식 안에 <code>{{항목}}</code>처럼 자리표시를 넣어 주세요.</p>
+      </div>
+      <button type="button" id="addDefaults" class="primary" style="display:none">기본 서식 넣기</button>
+    </div>
+    <p id="defaultsNote" class="muted" style="margin:-6px 0 14px;font-size:12.5px;display:none">
+      아직 서식이 없는 업무에 서비 기본 서식(공공기관 공식 서식 구성 기준, 우리 기관 결재선 반영)을 넣어 드려요. 이미 올린 서식은 바꾸지 않아요.</p>
+    <div id="grid" class="grid2"></div>
+  </div>
+</div>
+<script src="common.js?v=11"></script>
+<script>
+renderHeader();
+const orgSel = document.getElementById("org");
+
+function fmtDate(iso) {
+  if (!iso) return "—";
+  return iso.slice(0, 10).replace(/-/g, ".");
+}
+
+function extOf(path) {
+  if (!path) return "";
+  const m = /\.(\w+)$/.exec(path);
+  return m ? m[1].toUpperCase() : "";
+}
+
+async function load() {
+  const grid = document.getElementById("grid");
+  grid.innerHTML = '<div class="muted"><span class="spinner"></span> 불러오는 중…</div>';
+  const { forms } = await api(`/api/orgs/${orgSel.value}/forms`);
+  if (!forms.length) { grid.innerHTML = '<p class="muted">이 기관 유형에는 서식을 연결할 수 있는 업무가 없어요.</p>'; return; }
+  const empty = forms.filter((f) => !f.exists).length;
+  document.getElementById("addDefaults").style.display = empty ? "" : "none";
+  document.getElementById("defaultsNote").style.display = empty ? "" : "none";
+  document.getElementById("addDefaults").textContent = `기본 서식 넣기 (${empty}개)`;
+  grid.innerHTML = forms.map((f) => `
+    <article class="card" data-id="${esc(f.id)}">
+      <span class="badge b-accent">${esc(f.task_category || "서식")}</span>
+      <h3 style="margin:10px 0 2px">${esc(f.task_name)}</h3>
+      <p class="muted" style="margin:0 0 12px">${f.exists ? `최근 수정 ${fmtDate(f.modified)} · ${extOf(f.path)}` : "아직 올린 서식이 없어요"}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        ${f.exists ? `<a class="btn" href="/api/orgs/${esc(orgSel.value)}/forms/${esc(f.id)}/file">원본 다운로드</a>
+        <button type="button" class="primary make-draft">서비에게 초안 요청</button>` : ""}
+        <label class="btn ghost upload-label" style="cursor:pointer">
+          ${f.exists ? "서식 바꾸기" : "서식 올리기"}
+          <input type="file" class="upload-input sr-only" accept=".docx,.hwpx">
+        </label>
+      </div>
+    </article>`).join("");
+  grid.querySelectorAll(".make-draft").forEach((b) => (b.onclick = () => {
+    const id = b.closest("article").dataset.id;
+    rememberOrg(orgSel.value);
+    location.href = `index.html?form=${encodeURIComponent(id)}`;
+  }));
+  grid.querySelectorAll(".upload-input").forEach((inp) => (inp.onchange = async () => {
+    const file = inp.files[0];
+    if (!file) return;
+    const id = inp.closest("article").dataset.id;
+    const fd = new FormData(); fd.append("file", file);
+    try {
+      await fetch(`/api/orgs/${orgSel.value}/forms/${id}/file`, { method: "POST", body: fd })
+        .then(async (r) => { if (!r.ok) throw new Error((await r.json()).detail || "업로드 실패"); });
+      toast(`${file.name} 올렸어요`);
+      load();
+    } catch (e) { toast(e.message); }
+  }));
+}
+
+document.getElementById("addDefaults").onclick = async (ev) => {
+  const btn = ev.currentTarget;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 만드는 중';
+  try {
+    const r = await api(`/api/orgs/${orgSel.value}/forms/defaults`, { method: "POST" });
+    toast(`기본 서식 ${r.created.length}개를 넣었어요`);
+    load();
+  } catch (e) { toast(e.message); }
+  btn.disabled = false;
+};
+
+orgSel.onchange = () => { rememberOrg(orgSel.value); load(); toast(`${orgSel.selectedOptions[0].text} 기준으로 보여드려요`); };
+fillOrgSelect(orgSel).then(load).catch((e) => toast(e.message));
+</script>
+</body>
+</html>
