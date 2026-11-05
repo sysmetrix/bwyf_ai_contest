@@ -32,7 +32,14 @@ CLAUDE.md, GEMINI.md는 AGENTS.md를 불러오기만 합니다.
 
 ## 실행
 
-(정할 것)
+Python 3.10 이상이 필요합니다. **서무비서 하나만 켜면 인트라넷도 같이 열립니다.**
+
+```bash
+cd app && pip install -r requirements.txt && python run.py
+```
+
+- 서무비서: http://localhost:8000
+- 가상 인트라넷: http://localhost:8000/intranet/ (연결 작업 중. `docs/연동약속.md` 3장)
 
 ## 일정
 
