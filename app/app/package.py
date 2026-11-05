@@ -67,7 +67,8 @@ def _body_text(r: dict, profile: dict) -> str:
 
     ap = r.get("approval") or {}
     if ap.get("approver"):
-        lines.append(f"  {n}. 전결권자: {ap['approver']} ({ap.get('basis', '')})".rstrip(" ()")); n += 1
+        basis = (ap.get("basis") or "").strip()
+        lines.append(f"  {n}. 전결권자: {ap['approver']}" + (f" ({basis})" if basis else "")); n += 1
     dl = r.get("deadline") or {}
     if dl.get("text"):
         lines.append(f"  {n}. {dl.get('label', '기한')}: {dl['text']}"); n += 1
@@ -145,9 +146,12 @@ def build(org_id: str, message: str, *, user_id: str | None = None,
         "steps": r.get("steps") or [],
         "deadline": r.get("deadline"),
         "approval": r.get("approval"),
-        "approval_line": r.get("approval_line") or [],
+        # 결재선은 approval 안에 들어 있습니다(예전 키 이름을 쓰면 늘 빈 값이 됩니다).
+        "approval_line": (r.get("approval") or {}).get("line") or [],
         "required_docs": r.get("required_docs") or [],
-        "evidence": [{"doc": e.get("doc"), "article": e.get("article"), "layer": e.get("layer_label")}
+        "evidence": [{"doc": e.get("title"), "article": e.get("ref") or e.get("heading"),
+                      "label": e.get("label"), "file": e.get("file"),
+                      "layer": e.get("layer_label")}
                      for e in (r.get("evidence") or [])],
         "warnings": r.get("warnings") or [],
         "attachments": attachments,

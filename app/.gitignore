@@ -12,3 +12,5 @@ data/orgs_deleted/
 .cache/
 data_backups/
 .install_id
+data/orgs/*/packages/
+data/orgs/*/intranet_sync.json

@@ -341,6 +341,34 @@ def list_users(org_id: str) -> list[dict]:
     return read_yaml(p).get("users", [])
 
 
+def find_user(org_id: str, user_id: str | None) -> dict | None:
+    """담당자 한 명을 찾습니다. 직급·역할을 보고 결재선을 정하는 데 씁니다."""
+    if not user_id:
+        return None
+    for u in list_users(org_id):
+        if u.get("id") == user_id:
+            return u
+    return None
+
+
+def sync_users_from_intranet(org_id: str) -> dict:
+    """결재시스템 조직도를 담당자 목록으로 가져옵니다.
+
+    직급·직위를 사람이 적어 넣지 않게 하려는 것입니다. 역할은 이 직급과
+    기관 전결표를 맞춰 서비가 스스로 판정합니다.
+    """
+    from . import intranet
+    members = intranet.fetch_org_members(org_id)
+    if not members:
+        return {"ok": False, "count": 0, "error": "조직도를 읽지 못했습니다"}
+    users = [{"id": m.get("id"), "name": m.get("name"), "dept": m.get("dept"),
+              "rank": m.get("rank"), "title": m.get("title"),
+              "grade": m.get("grade"), "source": "intranet"}
+             for m in members if m.get("id")]
+    write_yaml(users_path(org_id), {"users": users})
+    return {"ok": True, "count": len(users)}
+
+
 def save_user(org_id: str, user: dict) -> str:
     """담당자를 등록하거나(같은 id면) 갱신합니다. id가 없으면 새로 만듭니다."""
     name = (user.get("name") or "").strip()

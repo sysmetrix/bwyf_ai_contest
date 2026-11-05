@@ -15,7 +15,8 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import approval, drafter, engine, forms, helpdesk, llm, mailer, package, store, transfer, understand, updater
+from . import (approval, credentials, drafter, engine, forms, helpdesk, intranet, llm,
+               mailer, package, roles, rpa, store, sync, transfer, understand, updater)
 from .rules import get_index, list_rule_files, warm_all
 from .version import VERSION
 
@@ -187,6 +188,198 @@ def add_user(org_id: str, body: UserBody):
 
 
 # ---------- 내 할 일(대시보드) ----------
+# ---------- 결재시스템 연결 (설치할 때 한 번) ----------
+
+class ConnectBody(BaseModel):
+    base_url: str
+    mode: str = "api"         # api: 연동 API / rpa: 아이디·비밀번호로 로그인
+    api_key: str = ""
+    user_id: str = ""         # rpa 일 때 그룹웨어 아이디
+    password: str = ""        # rpa 일 때 비밀번호. 파일에 적지 않고 저장소에 맡깁니다
+    org_id: str = ""          # 결재시스템 쪽 기관 코드
+    learn: bool = True        # 연결되면 바로 읽어 들일지
+
+
+@app.get("/api/intranet/methods")
+def intranet_methods():
+    """이 PC에서 쓸 수 있는 연결 방식. 설치 화면이 이걸 보고 고르게 합니다."""
+    rpa_ok, rpa_why = rpa.available()
+    vault_ok, vault_why = credentials.available()
+    return {
+        "api": {"usable": True,
+                "label": "연동 API (권장)",
+                "note": "기관에서 읽기 전용 API 키를 받아 넣습니다. 화면이 바뀌어도 깨지지 않습니다."},
+        "rpa": {"usable": rpa_ok, "detail": rpa_why,
+                "label": "아이디·비밀번호로 로그인",
+                "note": "API가 없는 그룹웨어용입니다. 사람과 똑같이 로그인해 읽고 씁니다. "
+                        "그룹웨어 화면이 바뀌면 다시 맞춰야 합니다."},
+        "vault": {"usable": vault_ok, "detail": vault_why},
+    }
+
+
+@app.post("/api/intranet/rpa/test")
+def intranet_rpa_test(body: ConnectBody):
+    """아이디·비밀번호로 실제 로그인이 되는지만 봅니다. 아무것도 저장하지 않습니다."""
+    ok, why = rpa.available()
+    if not ok:
+        raise HTTPException(400, why)
+    res = rpa.read_pending(body.base_url, body.user_id, body.password, headless=True)
+    if not res.ok:
+        raise HTTPException(400, res.error or "로그인하지 못했습니다")
+    return {"ok": True, "결재대기": res.data, "seconds": round(res.seconds, 1)}
+
+
+@app.get("/api/intranet/status")
+def intranet_status():
+    """지금 어디에 붙어 있고 무엇을 읽어 두었는지."""
+    cfg = store.load_config().get("intranet") or {}
+    env = cfg.get("api_key_env", "INTRANET_API_KEY")
+    out = {"enabled": bool(cfg.get("enabled")), "base_url": cfg.get("base_url"),
+           "org_id": cfg.get("org_id"), "api_key_env": env,
+           "api_key_set": store.secret_is_set(env), "reachable": False}
+    if cfg.get("enabled"):
+        try:
+            client = intranet.IntranetClient(base_url=cfg.get("base_url"),
+                                             api_key=os.environ.get(env))
+            res = client._get("/api/v1/orgs")
+            out["reachable"] = "error" not in res
+            out["orgs"] = res.get("data") or []
+        except Exception as exc:
+            out["error"] = str(exc)[:160]
+    return out
+
+
+@app.post("/api/intranet/connect")
+def intranet_connect(body: ConnectBody):
+    """주소와 키를 받아 연결하고, 규정·서식·조직도를 한 번에 읽어 들입니다.
+
+    키는 설정 파일이 아니라 .env 에 따로 둡니다(깃에 올라가지 않습니다).
+    """
+    base = (body.base_url or "").strip().rstrip("/")
+    if not base.startswith(("http://", "https://")):
+        raise HTTPException(400, "주소는 http:// 또는 https:// 로 시작해야 합니다")
+
+    if body.mode == "rpa":
+        ok, why = rpa.available()
+        if not ok:
+            raise HTTPException(400, why)
+        if not body.user_id.strip() or not body.password:
+            raise HTTPException(400, "그룹웨어 아이디와 비밀번호를 입력해 주세요")
+        probe = rpa.read_pending(base, body.user_id, body.password, headless=True)
+        if not probe.ok:
+            raise HTTPException(400, probe.error or "로그인하지 못했습니다")
+        saved, note = credentials.save(base, body.user_id, body.password)
+        cfg = store.load_config()
+        cfg["intranet"] = {**(cfg.get("intranet") or {}), "enabled": True, "mode": "rpa",
+                           "base_url": base, "user_id": body.user_id,
+                           "org_id": body.org_id.strip() or "",
+                           "use_regulations": True, "use_forms": True}
+        store._write_config_keep_comments(cfg)
+        return {"ok": True, "mode": "rpa", "base_url": base, "user_id": body.user_id,
+                "password_saved": saved, "note": note}
+
+    env = "INTRANET_API_KEY"
+    if body.api_key.strip():
+        _guard(store.set_secret, env, body.api_key)
+
+    # 저장하기 전에 먼저 닿는지 봅니다.
+    client = intranet.IntranetClient(base_url=base, api_key=os.environ.get(env))
+    if not client.is_configured():
+        raise HTTPException(400, "이 주소는 키가 필요합니다. API 키를 입력해 주세요")
+    probe = client._get("/api/v1/orgs")
+    if "error" in probe:
+        raise HTTPException(400, f"연결하지 못했습니다: {probe['error']}")
+
+    orgs = probe.get("data") or []
+    org_code = body.org_id.strip() or (orgs[0].get("id") if orgs else "")
+
+    cfg = store.load_config()
+    cfg["intranet"] = {**(cfg.get("intranet") or {}), "enabled": True,
+                       "base_url": base, "api_key_env": env, "org_id": org_code,
+                       "use_regulations": True, "use_forms": True}
+    store._write_config_keep_comments(cfg)
+
+    learned = {}
+    if body.learn:
+        for org in store.list_orgs():
+            oid = org["id"] if isinstance(org, dict) else org
+            try:
+                learned[oid] = {"users": store.sync_users_from_intranet(oid),
+                                "documents": sync.apply(oid)}
+            except Exception as exc:
+                learned[oid] = {"error": str(exc)[:160]}
+
+    return {"ok": True, "base_url": base, "org_id": org_code,
+            "orgs": orgs, "learned": learned}
+
+
+@app.get("/api/orgs/{org_id}/me")
+def my_role(org_id: str, user_id: str | None = None):
+    """내가 누구이고 무엇을 전결할 수 있는지. 전결표에서 계산한 값입니다."""
+    profile = _guard(store.load_profile, org_id)
+    user = _guard(store.find_user, org_id, user_id)
+    return roles.authority(profile, user, store.load_tasks())
+
+
+@app.get("/api/orgs/{org_id}/briefing")
+def briefing(org_id: str, user_id: str | None = None):
+    """화면을 열 때 먼저 보여 줄 브리핑.
+
+    결재자면 결재할 문서를, 담당자면 내 할 일을 앞세웁니다. 규정이 바뀐 것이
+    있으면 누구에게나 알립니다.
+    """
+    profile = _guard(store.load_profile, org_id)
+    user = _guard(store.find_user, org_id, user_id)
+    who = roles.authority(profile, user, store.load_tasks())
+
+    pending = []
+    reachable = True
+    if who["is_approver"]:
+        try:
+            st = intranet_status()
+            reachable = bool(st.get("reachable"))
+            if reachable:
+                pending = intranet.fetch_pending_approvals(who.get("title"))
+                if not pending:
+                    pending = intranet.fetch_pending_approvals()
+        except Exception:
+            reachable = False
+
+    changes = {}
+    try:
+        changes = sync.check(org_id)
+    except Exception:
+        changes = {}
+
+    lines = []
+    if who["is_approver"] and pending:
+        kinds = {}
+        for d in pending:
+            kinds[d.get("form_title") or d.get("task") or "기안"] = \
+                kinds.get(d.get("form_title") or d.get("task") or "기안", 0) + 1
+        detail = ", ".join(f"{k} {v}건" for k, v in kinds.items())
+        lines.append(f"결재하실 문서가 {len(pending)}건 있습니다. {detail}.")
+    elif who["is_approver"] and not reachable:
+        lines.append("결재시스템에 연결하지 못해 결재함을 확인하지 못했습니다.")
+    elif who["is_approver"]:
+        lines.append("결재를 기다리는 문서는 없습니다.")
+
+    note = sync.message(changes) if changes else ""
+    if note and not changes.get("first_time"):
+        lines.append(note + " 다시 읽어 둘까요?")
+
+    return {"me": who, "pending": pending, "changes": changes, "reachable": reachable,
+            "sync_note": note, "lines": lines}
+
+
+@app.post("/api/orgs/{org_id}/sync")
+def sync_now(org_id: str):
+    """결재시스템을 다시 읽습니다. 조직도와 바뀐 규정·서식을 반영합니다."""
+    users = _guard(store.sync_users_from_intranet, org_id)
+    changed = _guard(sync.apply, org_id)
+    return {"users": users, "documents": changed, "note": sync.message(changed)}
+
+
 @app.get("/api/orgs/{org_id}/dashboard")
 def dashboard(org_id: str, user_id: str | None = None):
     items = _guard(store.open_items, org_id, user_id)
@@ -231,7 +424,7 @@ def chat(body: ChatBody):
 class SummaryBody(BaseModel):
     org_id: str
     message: str
-    task_id: str
+    task_id: str = ""        # 업무로 분류되지 않은 규정 질문이면 빈 값
     slots: dict = {}
     method: str | None = None
 
@@ -240,7 +433,8 @@ class SummaryBody(BaseModel):
 def chat_summary(body: SummaryBody):
     """빠른 답(fast)을 먼저 보여 준 뒤, AI가 다듬은 안내 문장만 따로 받아 갑니다(다시 분류하지 않음)."""
     r = _guard(engine.answer, body.org_id, body.message, log=False, ai_summary=True,
-               understood={"task_id": body.task_id, "slots": body.slots, "method": body.method})
+               understood={"task_id": body.task_id or None, "slots": body.slots,
+                           "method": body.method})
     return {"summary": r["summary"], "summary_by": r["summary_by"]}
 
 

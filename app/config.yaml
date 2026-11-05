@@ -40,7 +40,7 @@ mail:
       pass_env: MAIL_PASS
       from_addr: seobi@example.invalid
 approval:
-  provider: mock
+  provider: intranet
   providers:
     mock:
       type: mock
@@ -50,3 +50,14 @@ approval:
       api_key_env: AMARANTH_API_KEY
       company_code: DEMO_ORG
       form_id: FORM_EXPENSE_01
+    intranet:
+      type: intranet_api
+      base_url: http://127.0.0.1:8100
+      api_key_env: INTRANET_API_KEY
+intranet:
+  enabled: true
+  base_url: http://127.0.0.1:8100
+  api_key_env: INTRANET_API_KEY
+  org_id: bwyf
+  use_regulations: true
+  use_forms: true

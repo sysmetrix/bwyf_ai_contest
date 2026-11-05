@@ -223,12 +223,18 @@ def ai_general_answer(org_id: str, org_name: str, message: str, history: list | 
             "grounded": bool(used), "evidence": used, "suggestions": [], "links": [], "docs": []}
 
 
-def answer_unknown(org_id: str, org_name: str, message: str, history: list | None = None) -> dict:
+def answer_unknown(org_id: str, org_name: str, message: str, history: list | None = None,
+                   use_ai: bool = True) -> dict:
     """업무로도, 서비에 대한 질문으로도 분류되지 않은 질문.
-    AI가 있으면 서무 비서로서 무엇이든 답하고, 없으면 관련 조문을 찾아 보여 줍니다."""
-    ai = ai_general_answer(org_id, org_name, message, history)
-    if ai:
-        return ai
+    AI가 있으면 서무 비서로서 무엇이든 답하고, 없으면 관련 조문을 찾아 보여 줍니다.
+
+    use_ai=False 면 AI를 부르지 않고 찾은 조문만 바로 돌려줍니다. 화면이 먼저
+    띄우고(즉시), 다듬은 문장은 뒤이어 받아 갈아 끼웁니다.
+    """
+    if use_ai:
+        ai = ai_general_answer(org_id, org_name, message, history)
+        if ai:
+            return ai
     hits = get_index(org_id).search(message, k=4)
     good = [(a, s) for a, s in hits if s >= 1.5]
     evidence = [a.as_dict(s) for a, s in good]
@@ -243,4 +249,5 @@ def answer_unknown(org_id: str, org_name: str, message: str, history: list | Non
                 "'출장 다녀와서 정산해야 해요', '물품 30만원어치 사야 해요'처럼 상황을 말씀해 주시거나, "
                 "'규정 어디서 찾아?', '뭐 할 수 있어?'처럼 저에 대해 물어보셔도 돼요.")
     return {"task": None, "kind": "unknown", "summary": text, "summary_by": "규칙",
-            "evidence": evidence, "suggestions": tasks, "links": [], "docs": []}
+            "evidence": evidence, "suggestions": tasks, "links": [], "docs": [],
+            "summary_pending": (not use_ai) and bool(good)}

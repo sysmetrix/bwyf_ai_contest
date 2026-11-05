@@ -260,6 +260,7 @@
       rememberOrg(orgSel.value);
       await fillUserSelect(userSel, orgSel.value);
       rememberUser(userSel.value);
+      loadBriefing();
     } catch (e) { toast(e.message); }
   }
   orgSel.onchange = async () => {
@@ -268,9 +269,9 @@
     rememberUser(userSel.value);
     history = []; feed.innerHTML = ""; proc.hidden = true;
     document.body.classList.remove("has-answer");
-    loadQuick(); loadTodo();
+    loadQuick(); loadTodo(); loadBriefing();
   };
-  userSel.onchange = () => { rememberUser(userSel.value); loadTodo(); };
+  userSel.onchange = () => { rememberUser(userSel.value); loadTodo(); loadBriefing(); };
 
   // ---------- 빠른 질문 ----------
   const QUICK_HINT = {
@@ -321,6 +322,32 @@
   //       → 사람이 눈으로 검증 → 상신
   // 서비는 스스로 상신하지 않습니다. 마지막 한 걸음은 늘 사람입니다.
   // ==================================================================
+  // 기안에 들어가는 항목(장소·기간·금액 등)을 확인 화면에서 바로 고칠 수 있게 합니다.
+  const SLOT_LABELS = [
+    ["destination", "장소"], ["start_date", "시작일"], ["end_date", "종료일"],
+    ["item", "품목"], ["amount_won", "금액(원)"], ["days", "일수"],
+  ];
+
+  function slotFields(m) {
+    const slots = m.slots || {};
+    return SLOT_LABELS
+      .filter(([k]) => slots[k] !== undefined && slots[k] !== null)
+      .map(([k, label]) => `<label class="dr-f dr-slot"><span>${label}</span>` +
+        `<input id="dr_s_${k}" data-slot="${k}" value="${esc(String(slots[k]))}"></label>`)
+      .join("");
+  }
+
+  function readSlots(box, m) {
+    const out = { ...(m.slots || {}) };
+    box.querySelectorAll("[data-slot]").forEach((el) => {
+      const k = el.dataset.slot;
+      const v = el.value.trim();
+      if (!v) { delete out[k]; return; }
+      out[k] = (k === "amount_won" || k === "days") ? Number(v.replace(/[^0-9]/g, "")) || 0 : v;
+    });
+    return out;
+  }
+
   function field(label, value, id, multiline) {
     const v = esc(value || "");
     return multiline
@@ -357,6 +384,8 @@
         <span class="badge b-note">올리기 전 확인</span></div>
       ${field("제목", m.title, "dr_title")}
       ${field("본문", m.body, "dr_body", true)}
+      <div class="dr-slots">${slotFields(m)}</div>
+      ${field("결재선", (m.approval_line || []).join(", "), "dr_line")}
       <div class="dr-meta">
         <div><span>전결권자</span><b>${esc((m.approval || {}).approver || "금액에 따라 다름")}</b></div>
         <div><span>근거 조문</span><b>${(m.evidence || []).length}건</b></div>
@@ -466,7 +495,10 @@
       const btn = e.currentTarget;
       btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 올리는 중';
       try {
-        const changes = { title: $("dr_title").value.trim(), body: $("dr_body").value };
+        const line = $("dr_line") ? $("dr_line").value.split(",").map((x) => x.trim()).filter(Boolean) : null;
+        const changes = { title: $("dr_title").value.trim(), body: $("dr_body").value,
+                          slots: readSlots(box, m) };
+        if (line && line.length) changes.approval_line = line;
         await api(`/api/orgs/${m.org_id}/packages/${m.id}`, { method: "PUT", body: { changes } });
         const out = await api(`/api/orgs/${m.org_id}/packages/${m.id}/send`, { method: "POST" });
         renderSent(box, out.package, out.result);
@@ -669,6 +701,45 @@
   }
 
   // ---------- 작업 내역 ----------
+  // 화면을 열면 먼저 브리핑합니다. 결재자면 결재할 문서를, 누구에게나
+  // 규정이 바뀐 것이 있으면 알립니다. 역할은 전결표에서 계산된 값입니다.
+  async function loadBriefing() {
+    if (!orgSel.value) return;
+    const host = $("briefing");
+    if (!host) return;
+    try {
+      const u = userSel.value ? `?user_id=${encodeURIComponent(userSel.value)}` : "";
+      const b = await api(`/api/orgs/${orgSel.value}/briefing${u}`);
+      const me = b.me || {};
+      const lines = b.lines || [];
+      if (!lines.length && !me.is_approver) { host.hidden = true; host.innerHTML = ""; return; }
+
+      const scopes = (me.approves || [])
+        .map((a) => `<li>${esc(a.scope)}${a.basis ? ` <span class="muted">· ${esc(a.basis)}</span>` : ""}</li>`)
+        .join("");
+      host.innerHTML = `
+        <div class="brf-head">
+          <b>${esc(me.name || "담당자")}</b>
+          <span class="badge ${me.is_approver ? "b-ok" : "b-note"}">${esc(me.role || "")}</span>
+          <span class="muted">${esc(me.title || "")}${me.dept ? " · " + esc(me.dept) : ""}</span>
+        </div>
+        ${lines.map((l) => `<p class="brf-line">${esc(l)}</p>`).join("")}
+        ${(b.pending || []).length ? `<ul class="brf-list">${
+          b.pending.map((d) => `<li><b>${esc(d.title)}</b>
+            <span class="muted">${esc(d.form_title || "")} · ${esc(d.doc_no)}</span></li>`).join("")
+        }</ul>` : ""}
+        ${scopes ? `<details class="brf-auth"><summary>내 전결 범위</summary><ul>${scopes}</ul></details>` : ""}
+        ${b.sync_note ? '<div class="brf-act"><button type="button" class="ghost brf-sync">다시 읽기</button></div>' : ""}`;
+      host.hidden = false;
+      const sb = host.querySelector(".brf-sync");
+      if (sb) sb.onclick = async () => {
+        sb.disabled = true; sb.textContent = "읽는 중…";
+        try { await api(`/api/orgs/${orgSel.value}/sync`, { method: "POST" }); await loadBriefing(); }
+        catch { sb.disabled = false; sb.textContent = "다시 읽기"; }
+      };
+    } catch { host.hidden = true; }
+  }
+
   async function loadTodo() {
     if (!orgSel.value) return;
     try {

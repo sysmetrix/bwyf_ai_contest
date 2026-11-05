@@ -22,7 +22,7 @@ import random
 import string
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -282,6 +282,8 @@ def send(org_id: str, manifest: dict) -> SendResult:
     kind = provider.get("type")
     if kind == "amaranth_10":
         res = _amaranth_send(manifest, files, provider)
+    elif kind == "intranet_api":
+        res = _intranet_send(org_id, manifest, files, provider)
     elif kind == "mock":
         res = _mock_send(manifest, files, provider)
     else:
@@ -296,9 +298,161 @@ def submit(doc_no: str) -> SendResult:
     kind = provider.get("type")
     if kind == "amaranth_10":
         res = _amaranth_submit(doc_no, provider)
+    elif kind == "intranet_api":
+        res = _intranet_submit(doc_no, provider)
     elif kind == "mock":
         res = _mock_submit(doc_no)
     else:
         res = SendResult(ok=False, provider=name, error=f"지원하지 않는 결재 연결 유형: {kind}")
     res.provider = name
     return res
+
+
+# ---------- 인트라넷 API 연동 ----------
+
+# 서비 업무 → 기관 서식 코드. 인트라넷이 이 코드로 공문서 화면을 고릅니다.
+# 서식이 바뀌면 여기만 고치면 됩니다.
+TASK_FORM = {
+    "travel_request": "F02",      # 출장신청서
+    "travel_settlement": "F03",   # 출장복명서
+    "annual_leave": "F08",        # 휴가(연차) 신청서
+    "sick_leave": "F08",
+    "purchase": "F09",            # 물품매입 품의 및 요구서
+    "event_hosting": "F14",       # 행사 계획서
+    "general_approval": "F01",    # 기안문
+    "lecture_report": "F21",      # 외부강의 등 신고서
+    "excess_honorarium": "F22",   # 초과사례금 신고서
+}
+
+
+def _form_code(manifest: dict) -> str:
+    task_id = (manifest.get("task") or {}).get("id") or ""
+    return TASK_FORM.get(task_id, "F01")
+
+
+def _fields(manifest: dict, profile: dict, user: dict | None = None) -> dict:
+    """인트라넷이 서식 칸을 채우는 데 쓸 값들. 규정에서 확인된 것만 보냅니다."""
+    slots = manifest.get("slots") or {}
+    dl = manifest.get("deadline") or {}
+    ap = manifest.get("approval") or {}
+    out = {
+        "기관명": (profile.get("org") or {}).get("name"),
+        "업무": (manifest.get("task") or {}).get("name"),
+        "작성일": date.today().isoformat(),
+        # 서식에는 아이디가 아니라 이름·직위가 들어가야 합니다.
+        "기안자": (user or {}).get("name") or manifest.get("user_id"),
+        "직위": (user or {}).get("title"),
+        "부서": (user or {}).get("dept"),
+        "결재선": manifest.get("approval_line") or [],
+        "전결권자": ap.get("approver"),
+        "전결근거": ap.get("basis"),
+        "기한": f"{dl.get('label','')} {dl.get('text','')}".strip() or None,
+        "붙임": manifest.get("required_docs") or [],
+        "근거조문": [e.get("label") for e in (manifest.get("evidence") or []) if e.get("label")][:4],
+    }
+    for key, name in (("start_date", "시작일"), ("end_date", "종료일"),
+                      ("destination", "장소"), ("item", "품목"),
+                      ("amount_won", "금액"), ("days", "일수")):
+        if slots.get(key) is not None:
+            out[name] = slots[key]
+    return {k: v for k, v in out.items() if v not in (None, "", [], {})}
+
+
+def _intranet_send(org_id: str, manifest: dict, files: list[Path], provider: dict) -> SendResult:
+    """인트라넷으로 기안 임시저장"""
+    from . import intranet
+
+    start = time.time()
+
+    try:
+        client = intranet.IntranetClient(
+            base_url=provider.get("base_url"),
+            api_key=os.environ.get(provider.get("api_key_env", "INTRANET_API_KEY"))
+        )
+
+        if not client.is_configured():
+            return SendResult(ok=False, provider="intranet_api",
+                            error="인트라넷 API 키가 설정되지 않았습니다",
+                            seconds=time.time() - start)
+
+        # 첨부파일 준비
+        attachments = {}
+        for f in files:
+            attachments[f.name] = f.read_bytes()
+
+        # 기관 프로필에서 결재자 추출
+        profile = store.load_profile(org_id)
+        # 확인 화면에서 사람이 고친 결재선을 그대로 씁니다. 없으면 기관 기본값입니다.
+        approvers = [str(x) for x in (manifest.get("approval_line") or [])]
+        if not approvers:
+            approvers = list((profile.get("approval") or {}).get("line", []))[:3]
+
+        # 인트라넷으로 전송 (임시저장)
+        result = client.submit_draft(
+            title=manifest.get("title", "기안"),
+            content=manifest.get("body", ""),
+            form_category=_form_code(manifest),
+            org_id=org_id,
+            approvers=approvers,
+            attachments=attachments if attachments else None,
+            submit=False,  # 임시저장만
+            fields=_fields(manifest, profile,
+                            store.find_user(org_id, manifest.get('user_id'))),
+        )
+
+        if result.ok:
+            return SendResult(
+                ok=True, provider="intranet_api",
+                doc_no=result.doc_no,
+                url=result.url,
+                state=result.state,
+                seconds=time.time() - start
+            )
+        else:
+            return SendResult(
+                ok=False, provider="intranet_api",
+                error=result.error,
+                seconds=time.time() - start
+            )
+
+    except Exception as e:
+        return SendResult(ok=False, provider="intranet_api",
+                        error=f"인트라넷 연동 오류: {str(e)}",
+                        seconds=time.time() - start)
+
+
+def _intranet_submit(doc_no: str, provider: dict) -> SendResult:
+    """인트라넷 기안 상신"""
+    from . import intranet
+
+    start = time.time()
+
+    try:
+        client = intranet.IntranetClient(
+            base_url=provider.get("base_url"),
+            api_key=os.environ.get(provider.get("api_key_env", "INTRANET_API_KEY"))
+        )
+
+        if not client.is_configured():
+            return SendResult(ok=False, provider="intranet_api",
+                            error="인트라넷 API 키가 설정되지 않았습니다",
+                            seconds=time.time() - start)
+
+        res = client.submit_document(doc_no)
+        if "error" in res:
+            return SendResult(ok=False, provider="intranet_api",
+                            error=res["error"], seconds=time.time() - start)
+
+        state = ((res.get("data") or {}).get("state")) or "submitted"
+        return SendResult(
+            ok=True, provider="intranet_api",
+            doc_no=doc_no,
+            state=state,
+            seconds=time.time() - start,
+            meta={"message": "인트라넷 결재함에 상신했습니다"}
+        )
+
+    except Exception as e:
+        return SendResult(ok=False, provider="intranet_api",
+                        error=f"인트라넷 상신 오류: {str(e)}",
+                        seconds=time.time() - start)

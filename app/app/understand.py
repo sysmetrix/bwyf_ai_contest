@@ -20,16 +20,27 @@ def _squash(s: str) -> str:
     return re.sub(r"\s+", "", s)
 
 
-def classify_keywords(message: str, tasks: list[dict] | None = None) -> tuple[str | None, dict]:
+def keyword_matches(message: str, tasks: list[dict] | None = None) -> tuple[dict, dict]:
+    """업무별 점수와, 실제로 걸린 키워드를 함께 돌려줍니다."""
     tasks = tasks or load_tasks()
     msg = _squash(message)
-    scores = {}
+    scores: dict[str, float] = {}
+    hits: dict[str, list[str]] = {}
     for t in tasks:
         s = 0.0
+        got = []
         for kw in t.get("keywords", []):
-            if _squash(kw) in msg:
-                s += 1 + 0.2 * len(_squash(kw))
+            k = _squash(kw)
+            if k and k in msg:
+                s += 1 + 0.2 * len(k)
+                got.append(k)
         scores[t["id"]] = round(s, 2)
+        hits[t["id"]] = got
+    return scores, hits
+
+
+def classify_keywords(message: str, tasks: list[dict] | None = None) -> tuple[str | None, dict]:
+    scores, _ = keyword_matches(message, tasks)
     best = max(scores, key=scores.get) if scores else None
     if not best or scores[best] == 0:
         return None, scores
@@ -122,14 +133,27 @@ def _safe_date(y: int, m: int, d: int) -> date | None:
 
 def understand(message: str, today: date | None = None, override: dict | None = None) -> dict:
     tasks = load_tasks()
-    kw_task, scores = classify_keywords(message, tasks)
+    scores, hits = keyword_matches(message, tasks)
+    kw_task = max(scores, key=scores.get) if scores else None
+    if kw_task is not None and scores.get(kw_task, 0) == 0:
+        kw_task = None
     slots = extract_slots(message, today)
     result = {"task_id": kw_task, "slots": slots, "method": "규칙(키워드)",
               "keyword_scores": scores, "ai": None}
 
     # 키워드만으로 업무가 분명하면 AI 분류를 건너뜁니다(답이 1~2초 빨라짐). 애매할 때만 AI에게 묻습니다.
     ranked = sorted(scores.values(), reverse=True) + [0, 0]
-    clear = override is None and kw_task is not None and ranked[0] >= 1.4 and ranked[1] <= ranked[0] * 0.5
+    clear = (override is None and kw_task is not None
+             and ranked[0] >= 1.0 and ranked[1] <= ranked[0] * 0.7)
+
+    # 긴 키워드가 짧은 키워드를 품고 있으면(초과사례금 ⊃ 사례금) 긴 쪽이 맞습니다.
+    # 점수가 비슷해도 AI에게 다시 묻지 않습니다.
+    if not clear and override is None and kw_task is not None and ranked[0] >= 1.0:
+        mine = max(hits.get(kw_task) or [""], key=len)
+        others = [max(v, key=len) for k, v in hits.items()
+                  if k != kw_task and v and scores.get(k, 0) > 0]
+        if mine and others and all(o in mine and o != mine for o in others):
+            clear = True
     ai = None if clear else _classify_with_model(message, tasks, today or date.today(), override)
     if ai is not None:
         result["ai"] = {"provider": ai["provider"], "model": ai["model"], "ok": ai["ok"],
@@ -169,8 +193,8 @@ def _classify_with_model(message: str, tasks: list[dict], today: date,
                          override: dict | None) -> dict | None:
     if override is None and not llm.role_enabled("classify"):
         return None
-    task_list = "\n".join(f"- {t['id']}: {t['name']} ({', '.join(t.get('keywords', [])[:5])})"
-                          for t in tasks)
+    # 프롬프트가 길수록 느린 PC가 많아 업무 이름만 넣습니다(키워드는 규칙 분류가 이미 씁니다).
+    task_list = "\n".join(f"- {t['id']}: {t['name']}" for t in tasks)
     system = ("당신은 공공기관 서무 업무 분류기입니다. 사용자의 말을 읽고 아래 업무 중 하나를 고르고, "
               "말에 나온 정보만 추출합니다. 말에 없는 정보는 null로 둡니다. JSON 하나만 출력합니다.\n"
               f"오늘 날짜: {today.isoformat()}\n업무 목록:\n{task_list}\n"
@@ -179,7 +203,8 @@ def _classify_with_model(message: str, tasks: list[dict], today: date,
               '"end_date": "YYYY-MM-DD 또는 null", "amount_won": null, "item": null}')
     res = llm.chat("classify", [{"role": "system", "content": system},
                                 {"role": "user", "content": message}],
-                   override=override, max_tokens=200, timeout=None if override else 60)
+                   override=override, max_tokens=120,
+                   timeout=None if override else 20)
     return {"ok": res.ok, "provider": res.provider, "model": res.model, "error": res.error,
             "seconds": round(res.seconds, 2), "data": llm.parse_json(res.text)}
 

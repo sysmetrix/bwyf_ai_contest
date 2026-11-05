@@ -814,3 +814,93 @@ body.home.shell-desktop.large.opened .h-scrollarea { padding-bottom: 34px; }
 .dr-att-row .dr-x { padding: 4px 8px; color: var(--warn); }
 .shell-desktop.opened .dr-att { background: rgba(255,255,255,.6); }
 .shell-desktop.opened .dr-att-row { background: rgba(255,255,255,.9); }
+
+/* ==================================================================
+   포즈 — 일하기(노트북), 책 읽기, 아이디어, 걷기
+   ================================================================== */
+.h-prop { opacity: 0; transition: opacity .3s ease; pointer-events: none; }
+.h-bot[data-pose="work"] .p-laptop,
+.h-bot[data-pose="read"] .p-book,
+.h-bot[data-pose="idea"] .p-bulb { opacity: 1; }
+
+/* 포즈를 잡는 동안에는 둥둥 뜨지 않고 자리에 앉습니다 */
+.h-bot[data-pose="work"] .h-bot-svg,
+.h-bot[data-pose="read"] .h-bot-svg { animation: sitBreath 4s ease-in-out infinite; }
+@keyframes sitBreath { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-3px) } }
+
+/* 일하기: 팔을 모으고 자판 두드리듯 */
+.h-bot[data-pose="work"] .h-arm-l { transform: translate(14px, 14px) rotate(16deg); animation: typeL .34s ease-in-out infinite; }
+.h-bot[data-pose="work"] .h-arm-r { transform: translate(-14px, 14px) rotate(-16deg); animation: typeR .34s ease-in-out infinite .17s; }
+@keyframes typeL { 0%,100% { transform: translate(14px,14px) rotate(16deg) } 50% { transform: translate(14px,11px) rotate(16deg) } }
+@keyframes typeR { 0%,100% { transform: translate(-14px,14px) rotate(-16deg) } 50% { transform: translate(-14px,11px) rotate(-16deg) } }
+.h-bot[data-pose="work"] .h-head { transform: translateY(5px) rotate(2deg); transform-origin: 100px 132px; }
+
+/* 책 읽기: 팔을 들어 책을 받치고 고개를 숙입니다 */
+.h-bot[data-pose="read"] .h-arm-l { transform: translate(16px, 20px) rotate(-22deg); }
+.h-bot[data-pose="read"] .h-arm-r { transform: translate(-16px, 20px) rotate(22deg); }
+.h-bot[data-pose="read"] .h-head { transform: translateY(7px) rotate(-3deg); transform-origin: 100px 132px;
+  animation: readScan 4.2s ease-in-out infinite; }
+@keyframes readScan { 0%,100% { transform: translateY(7px) rotate(-3deg) } 50% { transform: translateY(7px) rotate(3deg) } }
+
+/* 아이디어: 전구가 깜빡 */
+.h-bot[data-pose="idea"] .p-bulb { animation: bulbPop .9s ease; }
+@keyframes bulbPop { 0% { opacity: 0; transform: translateY(8px) scale(.6) } 55% { opacity: 1; transform: translateY(-2px) scale(1.12) } 100% { opacity: 1; transform: none } }
+
+/* ---------- 걷기 ---------- */
+.h-bot[data-walk="1"] .h-bot-svg { animation: walkBob .46s ease-in-out infinite; }
+@keyframes walkBob { 0%,100% { transform: translateY(0) rotate(-1.5deg) } 50% { transform: translateY(-7px) rotate(1.5deg) } }
+.h-bot[data-walk="1"] .h-arm-l { animation: swingL .46s ease-in-out infinite; transform-origin: 60px 146px; }
+.h-bot[data-walk="1"] .h-arm-r { animation: swingR .46s ease-in-out infinite; transform-origin: 140px 146px; }
+@keyframes swingL { 0%,100% { transform: rotate(-20deg) } 50% { transform: rotate(20deg) } }
+@keyframes swingR { 0%,100% { transform: rotate(20deg) } 50% { transform: rotate(-20deg) } }
+.h-bot[data-walk="1"] .h-body ellipse:nth-child(1) { animation: stepA .46s ease-in-out infinite; }
+.h-bot[data-walk="1"] .h-body ellipse:nth-child(2) { animation: stepB .46s ease-in-out infinite; }
+@keyframes stepA { 0%,100% { transform: translate(-5px,0) } 50% { transform: translate(5px,-4px) } }
+@keyframes stepB { 0%,100% { transform: translate(5px,-4px) } 50% { transform: translate(-5px,0) } }
+.h-bot[data-walk="1"] .h-sprout { animation: sway 1s ease-in-out infinite; }
+
+/* 가는 쪽을 바라봅니다 */
+.h-bot[data-dir="-1"] .h-bot-svg { scale: -1 1; }
+.h-bot[data-dir="-1"] .h-face { scale: -1 1; transform-origin: 100px 86px; }
+
+/* ==================================================================
+   검색창이 답변을 가리던 문제
+   브라우저용 sticky 규칙(body.home.has-answer .h-search)이 위젯 규칙보다
+   특이도가 높아서, 패널 안에서도 검색창이 떠올라 답변 위를 덮었습니다.
+   패널은 세로 플렉스라 sticky 가 필요 없습니다. 검색창은 위에 붙은
+   일반 요소이고, 그 아래 스크롤 영역만 움직이면 됩니다.
+   ================================================================== */
+body.home.shell-desktop.opened .h-search {
+  position: static;
+  top: auto;
+  z-index: auto;
+  box-shadow: none;
+}
+body.home.shell-desktop.opened .h-hero {
+  position: static;
+  padding-top: 0;
+}
+body.home.shell-desktop.opened .h-hero::before { display: none; }
+
+/* 패널은 머리 → 검색창 → 빠른질문 → 스크롤 순서로 쌓입니다.
+   스크롤 영역만 늘어나고 나머지는 제자리를 지킵니다. */
+body.home.shell-desktop.opened .h-stage > .h-bar,
+body.home.shell-desktop.opened .h-stage > .h-search,
+body.home.shell-desktop.opened .h-stage > .h-quick { flex: none; }
+body.home.shell-desktop.opened .h-stage > .h-scrollarea { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+/* 확인 화면에서 기안 항목을 바로 고칠 수 있게 늘어놓습니다 */
+.dr-slots{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
+.dr-slots .dr-slot{flex:1 1 150px;min-width:120px}
+.dr-slots .dr-slot input{width:100%}
+
+/* 화면을 열면 먼저 보이는 브리핑 (결재자면 결재할 문서, 바뀐 규정 알림) */
+.brf{margin-bottom:10px}
+.brf-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.brf-line{margin:4px 0;font-size:14px}
+.brf-list{margin:6px 0 0;padding-left:18px;font-size:13px}
+.brf-list li{margin:3px 0}
+.brf-auth{margin-top:8px;font-size:12.5px}
+.brf-auth summary{cursor:pointer;color:#5a6b7d}
+.brf-auth ul{margin:6px 0 0;padding-left:18px}
+.brf-act{margin-top:8px}

@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from . import helpdesk, llm
+from . import helpdesk, llm, store
 from .rules import get_index
 from .store import append_history, load_profile, load_tasks
 from .understand import understand
@@ -37,7 +37,39 @@ def won(n) -> str:
     return f"{n:,}원"
 
 
-def approver_for(profile: dict, amount: int | None) -> tuple[str | None, str]:
+def rank_approver(profile: dict, task_id: str | None,
+                  rank: int | None) -> tuple[str | None, str] | None:
+    """직급으로 결재권자가 갈리는 업무를 처리합니다.
+
+    복무·출장과 외부강의 신고는 금액이 아니라 '누가 신청하느냐'로 결재권자가
+    달라집니다. 같은 출장이라도 직원은 센터장이 전결하고, 센터장 본인이 가면
+    대표이사가 결재합니다. 해당하는 규칙이 없으면 None 을 돌려주어
+    금액 기준으로 넘깁니다.
+    """
+    ap = profile.get("approval") or {}
+    if not task_id:
+        return None
+    if rank is None:
+        rank = ap.get("default_rank")
+    if rank is None:
+        return None
+    for rule in ap.get("by_rank") or []:
+        if task_id not in (rule.get("tasks") or []):
+            continue
+        for cond in rule.get("when") or []:
+            lo, hi = cond.get("rank_min"), cond.get("rank_max")
+            if (lo is None or rank >= lo) and (hi is None or rank <= hi):
+                ranks = ap.get("ranks") or {}
+                who = ranks.get(rank) or ranks.get(str(rank)) or f"{rank}급"
+                return cond.get("approver"), f"{rule.get('name', '')} · {who} 신청 ({rule.get('basis', '')})".strip(" ·")
+    return None
+
+
+def approver_for(profile: dict, amount: int | None, task_id: str | None = None,
+                 rank: int | None = None) -> tuple[str | None, str]:
+    by_rank = rank_approver(profile, task_id, rank)
+    if by_rank:
+        return by_rank
     thresholds = (profile.get("approval") or {}).get("thresholds") or []
     if not thresholds:
         return None, "전결 기준이 프로필에 없습니다"
@@ -111,6 +143,27 @@ def render(template: str, profile: dict, ctx: dict) -> str:
 
 
 # ---------- 안내 만들기 ----------
+# 묻는 말(사실 질문)인지 가려냅니다. 절차를 해 달라는 요청과 구분하려는 것입니다.
+_ASKING = re.compile(r"(얼마|몇\s|몇개|며칠|어떻게|어디|언제|무엇|뭐\s|뭘|뭐야|뭐예요|"
+                     r"되나요|인가요|있나요|되요|될까요|할까요|알려|궁금|차이|기준이)")
+
+
+def _is_asking(message: str) -> bool:
+    return bool(_ASKING.search(message or ""))
+
+
+def _weak_task(u: dict, message: str) -> bool:
+    """업무를 '추측'으로만 붙였고, 사실을 묻는 말이면 규정에서 답하는 편이 낫습니다.
+
+    키워드가 하나도 안 맞았는데 AI가 업무를 고른 경우가 여기에 해당합니다.
+    이때 업무 절차를 읊으면 질문과 상관없는 답이 나갑니다.
+    """
+    tid = u.get("task_id")
+    if not tid:
+        return False
+    return (u.get("keyword_scores") or {}).get(tid, 0) <= 0 and _is_asking(message)
+
+
 def answer(org_id: str, message: str, today: date | None = None, log: bool = True,
            user_id: str | None = None, ai_summary: bool = True, understood: dict | None = None,
            history: list | None = None) -> dict:
@@ -139,12 +192,16 @@ def answer(org_id: str, message: str, today: date | None = None, log: bool = Tru
     topic = helpdesk.detect(message, task_found=task is not None)
     if topic:
         return {**base, **helpdesk.answer_topic(org_id, org.get("name") or org_id, topic, message)}
-    if task is None:
-        return {**base, **helpdesk.answer_unknown(org_id, org.get("name") or org_id, message, history)}
+    if task is None or _weak_task(u, message):
+        # 업무 절차 대신 규정·서식에서 찾아 답합니다. 업무는 아래에 제안으로만 둡니다.
+        return {**base, **helpdesk.answer_unknown(org_id, org.get("name") or org_id, message,
+                                                  history, use_ai=ai_summary)}
 
     slots = u["slots"]
     amount = slots.get("amount_won")
-    approver, approval_basis = approver_for(profile, amount)
+    me = store.find_user(org_id, user_id)
+    approver, approval_basis = approver_for(profile, amount, task["id"],
+                                            (me or {}).get("rank"))
     line = line_until(profile, approver)
     ctx = {"line": line, "approver": approver}
 
@@ -282,6 +339,16 @@ def _md(iso: str) -> str:
     return f"{d.month}월 {d.day}일"
 
 
+def _clip(text: str, limit: int) -> str:
+    """프롬프트에 넣을 만큼만 자릅니다. 문장 중간이면 가까운 마침표까지만 씁니다."""
+    t = " ".join(str(text or "").split())
+    if len(t) <= limit:
+        return t
+    cut = t[:limit]
+    dot = max(cut.rfind("."), cut.rfind("다"), cut.rfind("\n"))
+    return (cut[:dot + 1] if dot > limit * 0.6 else cut).rstrip() + " …"
+
+
 def _slot_text(r: dict) -> str:
     s = (r.get("understanding") or {}).get("slots") or {}
     when = s.get("start_date")
@@ -318,8 +385,10 @@ def _summary(r: dict, profile: dict) -> tuple[str, str]:
     fallback = _template_summary(r)
     if not llm.role_enabled("answer"):
         return fallback, "규칙"
-    ev = "\n".join(f"[{i + 1}] {e['label']} ({e['layer_label']}): {e['text']}"
-                   for i, e in enumerate(r["evidence"]))
+    # 이 PC는 프롬프트가 길수록 느려집니다(토큰 넣는 속도가 느림). 조문은 요약에 필요한
+    # 앞부분만 넣고, 전문은 화면의 '근거 보기'에서 그대로 보여 줍니다.
+    ev = "\n".join(f"[{i + 1}] {e['label']} ({e['layer_label']}): {_clip(e['text'], 320)}"
+                   for i, e in enumerate(r["evidence"][:3]))
     facts = f"- 핵심: {r.get('lead')}\n" if r.get("lead") else ""
     facts += "\n".join(f"- {s}" for s in r["steps"])
     if r.get("deadline") and r["deadline"].get("text"):
@@ -329,13 +398,16 @@ def _summary(r: dict, profile: dict) -> tuple[str, str]:
     if _slot_text(r):
         facts += f"\n- 질문에서 알아낸 내용: {_slot_text(r)}"
     system = ("당신은 공공기관 서무비서 '서비'입니다. 아래 '정해진 안내'와 '근거 조문'에 있는 내용만 사용해 "
-              "담당자에게 2~3문장으로 친절하게 요약합니다. 질문한 상황(장소·날짜·금액 등)이 있으면 그걸 짚어서 시작합니다. "
+              "담당자에게 2~3문장으로 친절하게 답합니다. "
+              "먼저 담당자가 물은 것에 직접 답합니다. 금액·기한·표기법처럼 사실을 물었으면 "
+              "'근거 조문'에서 그 값을 찾아 먼저 말하고, '정해진 안내'는 덧붙일 때만 씁니다. "
+              "질문한 상황(장소·날짜·금액 등)이 있으면 그걸 짚어서 시작합니다. "
               "새로운 숫자·기한·규정을 지어내지 않습니다. '정해진 안내'라는 말이나 그 출처 표시는 쓰지 말고, "
               "근거 조문을 말할 때만 [1]처럼 번호를 붙입니다.")
     user = (f"기관: {profile.get('org', {}).get('name')}\n질문: {r['message']}\n\n"
             f"정해진 안내:\n{facts}\n\n근거 조문:\n{ev}")
     res = llm.chat("answer", [{"role": "system", "content": system},
-                              {"role": "user", "content": user}], max_tokens=300, timeout=150)
+                              {"role": "user", "content": user}], max_tokens=180, timeout=120)
     if res.ok and res.text:
         text = re.sub(r"\s*\[(?:정해진|확정된) 안내[^\]]*\]", "", res.text).strip()
         return text, f"AI ({res.model})"

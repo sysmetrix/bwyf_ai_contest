@@ -150,7 +150,7 @@ function richText(text) {
 // 빠른 답을 먼저 보여 준 뒤, AI가 다듬은 안내 문장이 오면 그 부분만 바꿉니다.
 async function refineSummary(card, r) {
   const p = card.querySelector(".ans-summary");
-  if (!p || !r.task) return;
+  if (!p) return;                       // 업무가 없는 규정 답변도 다듬습니다
   const note = document.createElement("span");
   note.className = "muted";
   note.style.fontSize = "12px";
@@ -159,7 +159,8 @@ async function refineSummary(card, r) {
   try {
     const u = r.understanding || {};
     const s = await api("/api/chat/summary", { method: "POST", body: {
-      org_id: r.org.id, message: r.message, task_id: r.task.id, slots: u.slots || {}, method: u.method } });
+      org_id: r.org.id, message: r.message, task_id: r.task ? r.task.id : "",
+      slots: u.slots || {}, method: u.method } });
     p.innerHTML = `${esc(s.summary)} <span class="muted">(${esc(s.summary_by)})</span>`;
     p.classList.add("refined");
   } catch { note.remove(); }

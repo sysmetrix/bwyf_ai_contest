@@ -16,8 +16,10 @@ from pathlib import Path
 from .docs import SUPPORTED, read_text
 from .store import COMMON, ROOT, org_dir
 
-LAYER_LABEL = {"common": "공통 규정", "org": "기관 규정", "dept": "부서 보충"}
-LAYER_WEIGHT = {"common": 1.0, "org": 1.15, "dept": 1.25}  # 가까운 층을 우선
+LAYER_LABEL = {"common": "공통 규정", "org": "기관 규정", "dept": "부서 보충",
+               "intranet": "인트라넷 규정", "form": "인트라넷 서식"}
+LAYER_WEIGHT = {"common": 1.0, "org": 1.15, "dept": 1.25,
+                "intranet": 1.2, "form": 1.1}  # 가까운 층을 우선
 
 ARTICLE_RE = re.compile(r"^\s*(제\s*\d+\s*조(?:의\s*\d+)?)\s*(?:\(([^)]*)\))?")
 ANNEX_RE = re.compile(r"^\s*(별표\s*\d*|부칙)\s*(?:\(([^)]*)\))?")
@@ -225,9 +227,31 @@ def get_index(org_id: str) -> RuleIndex:
         for layer, f in files:
             rel = str(f.relative_to(ROOT))
             articles.extend(split_articles(_cached_text(f), layer, rel, f.stem))
+
+        # 인트라넷 규정 추가 (설정되어 있으면)
+        try:
+            from . import intranet
+            for reg in intranet.fetch_intranet_regulations(org_id):
+                articles.extend(split_articles(reg["content"], "intranet",
+                                               f"intranet://{reg['id']}", reg["title"]))
+            # 서식에도 "언제 쓰는지·무엇을 적는지"가 들어 있어 함께 찾아봅니다.
+            for form in intranet.fetch_intranet_form_texts(org_id):
+                articles.extend(split_articles(form["content"], "form",
+                                               f"form://{form['id']}", form["title"]))
+        except Exception as e:
+            print(f"⚠️  인트라넷 규정 로드 실패 ({org_id}): {e}")
+
         idx = RuleIndex(articles)
         _cache[org_id] = (key, idx)
         return idx
+
+
+def invalidate(org_id: str | None = None) -> None:
+    """규정이 바뀌었을 때 색인을 다시 만들게 합니다."""
+    if org_id:
+        _cache.pop(org_id, None)
+    else:
+        _cache.clear()
 
 
 def warm_all(org_ids: list[str]) -> None:
