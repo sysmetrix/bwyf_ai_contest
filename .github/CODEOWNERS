@@ -1,0 +1,8 @@
+# 폴더별 담당자. PR이 올라오면 해당 담당자가 리뷰어로 자동 지정됩니다.
+# 아래쪽 줄이 위쪽 줄보다 우선합니다. 원하(@sysmetrix)는 전체 총괄로 모든 줄에 포함됩니다.
+
+*                         @sysmetrix
+
+/app/                     @leeknow2 @sysmetrix
+/data/                    @Jenna9314 @sysmetrix
+/intranet/                @junhohooo12-cell @sysmetrix

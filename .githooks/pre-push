@@ -1,0 +1,13 @@
+#!/bin/sh
+# main 브랜치로 직접 푸시하는 것을 막습니다. (켜기: git config core.hooksPath .githooks)
+while read local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    echo ""
+    echo "[막힘] main으로 직접 푸시할 수 없습니다."
+    echo "  내 브랜치로 푸시한 뒤 GitHub에서 PR을 만들어 머지하세요."
+    echo "  (AI에게: '내 브랜치로 푸시하고 PR 만들어 줘')"
+    echo ""
+    exit 1
+  fi
+done
+exit 0
