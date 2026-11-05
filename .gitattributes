@@ -1,0 +1,9 @@
+* text=auto
+*.bat text eol=crlf
+*.docx binary
+*.hwpx binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.ico binary
+.githooks/* text eol=lf

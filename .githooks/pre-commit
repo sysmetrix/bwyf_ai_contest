@@ -1,0 +1,12 @@
+#!/bin/sh
+# main 브랜치에 직접 커밋하는 것을 막습니다. (켜기: git config core.hooksPath .githooks)
+branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+if [ "$branch" = "main" ]; then
+  echo ""
+  echo "[막힘] main 브랜치에는 직접 커밋할 수 없습니다."
+  echo "  내 브랜치를 만들고 다시 커밋하세요:  git checkout -b 내이름/작업이름"
+  echo "  (AI에게: '내이름/작업 브랜치 만들어서 커밋해 줘')"
+  echo ""
+  exit 1
+fi
+exit 0
