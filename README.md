@@ -10,12 +10,12 @@
 ```
 bwyf_ai_contest/
 ├─ app/             서무비서 메인 프로그램              영운
-├─ data/            가상 규정·서식 등 (모의데이터)       지은
+├─ data/            규정·서식 정리본 (개인정보 제외)    지은
 ├─ intranet/        가상 인트라넷 (모의 그룹웨어)        준호
 ├─ AGENTS.md        모든 AI가 따르는 공통 규칙          원하
 ├─ 시작하기.md       팀원용 첫 안내                      원하
 ├─ docs/            협업가이드, 연동약속, 이관요청문    원하
-├─ .github/         PR 양식, 폴더별 리뷰어(CODEOWNERS)  원하
+├─ .github/         PR 양식, 폴더 담당자(CODEOWNERS)   원하
 └─ .githooks/       main 직접 커밋·푸시 막기            원하
 ```
 
@@ -26,9 +26,9 @@ CLAUDE.md, GEMINI.md는 AGENTS.md를 불러오기만 합니다.
 | 사람 | 맡은 일 |
 |---|---|
 | 이영운 (@leeknow2) | 서무비서 메인 프로그램 구축 |
-| 김지은 (@Jenna9314) | 가상 규정·서식 등 제작 |
+| 김지은 (@Jenna9314) | 규정·서식 정리본 제작 |
 | 김준호 (@junhohooo12-cell) | 가상 인트라넷 구축 |
-| 원하 (@sysmetrix) | 전체 총괄 |
+| 서원하 (@sysmetrix) | 전체 총괄 |
 
 ## 실행
 
