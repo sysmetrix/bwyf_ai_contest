@@ -1,11 +1,28 @@
 #!/bin/sh
-# main 브랜치에 직접 커밋하는 것을 막습니다. (켜기: git config core.hooksPath .githooks)
+# 켜기: git config core.hooksPath .githooks
+
+# 1) main 브랜치에 직접 커밋하는 것을 막습니다.
 branch=$(git symbolic-ref --short HEAD 2>/dev/null)
 if [ "$branch" = "main" ]; then
   echo ""
   echo "[막힘] main 브랜치에는 직접 커밋할 수 없습니다."
   echo "  내 브랜치를 만들고 다시 커밋하세요:  git checkout -b 내이름/작업이름"
   echo "  (AI에게: '내이름/작업 브랜치 만들어서 커밋해 줘')"
+  echo ""
+  exit 1
+fi
+
+# 2) 공통 규칙·문서(app/, data/, intranet/ 밖의 파일)는 원하만 커밋할 수 있습니다.
+owner_emails="seowonha@gmail.com"
+me=$(git config user.email)
+case " $owner_emails " in *" $me "*) exit 0 ;; esac
+blocked=$(git -c core.quotepath=off diff --cached --name-only | grep -vE '^(app|data|intranet)/')
+if [ -n "$blocked" ]; then
+  echo ""
+  echo "[막힘] 공통 규칙·문서는 원하만 바꿀 수 있습니다. 아래 파일을 커밋에서 빼 주세요:"
+  echo "$blocked" | sed 's/^/    /'
+  echo "  바꿔야 할 내용은 단톡방에 \"어느 파일을, 왜\" 한 줄로 원하에게 알려 주세요."
+  echo "  (AI에게: '이 파일들은 커밋에서 빼고 되돌려 줘')"
   echo ""
   exit 1
 fi
