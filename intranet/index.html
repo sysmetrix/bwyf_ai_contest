@@ -282,6 +282,7 @@ modules['임직원업무관리'].create='근태신청서';
 state.rows.forEach(r=>{if(r.folder==='근태신청내역')r.folder='개인근태신청현황'});
 const priorForm=openForm, priorRender=render;
 const docs=['일반기안문','일반기안문(위탁기관-비전자)','보고양식','물품매입(수리제조)품의 및 요구서','공사(수선)집행 품의요구서','일직근무명령서','주간업무회의록'];
+const docGroups={'출장·여비':[],'복무':['일직근무명령서'],'구매·지출':['물품매입(수리제조)품의 및 요구서','공사(수선)집행 품의요구서'],'행사 운영':[],'전문가 활용비':[]};
 let catalogQuery='',catalogGroup='전체양식';
 const tile=(name,attr)=>'<button class="formtile"'+attrs(attr,name)+'><span>'+svg(attr==='trip'?'case':'board')+'</span><strong>'+safe(name)+'</strong><span aria-hidden="true">›</span></button>';
 render=function(){
@@ -289,8 +290,8 @@ render=function(){
  if(!active)return;
  const panel=$('workspace').querySelector('.panel');
  if(active==='전자결재'&&folder==='결재작성'){
-  const matches=docs.filter(d=>(catalogGroup!=='기본기안문'||d.includes('기안문'))&&d.includes(catalogQuery));
-  panel.innerHTML='<div class="paneltop"><strong>결재작성</strong></div><div class="catalog"><div><form class="filters" id="catalogSearch"><input name="q" aria-label="카테고리 또는 양식명" placeholder="카테고리/양식명 입력" value="'+safe(catalogQuery)+'"><button>검색</button></form>'+['전체양식','기본기안문'].map(n=>'<button class="category '+(catalogGroup===n?'active':'')+'"'+attrs('category',n)+'>'+n+'</button>').join('')+'</div><div><h3>자주 사용되는 양식</h3>'+(!catalogQuery?tile(docs[0],'draftform'):'')+'<h3>'+catalogGroup+'</h3>'+(matches.length?matches.map(d=>tile(d,'draftform')).join(''):empty)+'</div></div>';
+  const matches=docs.filter(d=>(catalogGroup==='전체양식'||(catalogGroup==='기본기안문'?d.includes('기안문'):(docGroups[catalogGroup]??[]).includes(d)))&&d.includes(catalogQuery));
+  panel.innerHTML='<div class="paneltop"><strong>결재작성</strong></div><div class="catalog"><div><form class="filters" id="catalogSearch"><input name="q" aria-label="카테고리 또는 양식명" placeholder="카테고리/양식명 입력" value="'+safe(catalogQuery)+'"><button>검색</button></form>'+['전체양식','기본기안문',...Object.keys(docGroups)].map(n=>'<button class="category'+(catalogGroup===n?'active':'')+'"'+attrs('category',n)+'>'+n+'</button>').join('')+'</div><div><h3>자주 사용되는 양식</h3>'+(!catalogQuery?tile(docs[0],'draftform'):'')+'<h3>'+catalogGroup+'</h3>'+(matches.length?matches.map(d=>tile(d,'draftform')).join(''):empty)+'</div></div>';
  }
  if(active==='임직원업무관리'&&folder==='근태신청서'){
   panel.innerHTML='<div class="paneltop"><strong>근태신청서</strong></div><div class="catalog"><div><h3>근태신청서 양식 선택</h3>'+tile('출장신청서','trip')+tile('기타 근태신청','attendance')+'</div><div><h3>근태신청현황</h3>'+calendar()+'</div></div>';
@@ -734,7 +735,7 @@ function docInput(key,label,value='',type='text'){
 }
 function sheetGeneral(existing){
  const d=existing?.details??{};
- return '<section class="official-sheet"><p class="sheet-motto">모두가 성장하는 지역 파트너</p><h2>부천여성청소년재단</h2><p>수신자 '+docInput('recipient','수신자',d.recipient??'내부결재')+'</p><p>(경유) '+docInput('via','경유',d.via)+'</p><p>제　목 <strong class="reflected-title">'+safe(existing?.title??'')+'</strong></p><hr><div data-rich contenteditable="true" role="textbox" aria-label="기안문 본문">'+cleanMailHtml(d.rich??safe(existing?.body??''))+'</div><div class="official-footer"><p>협조자 <span class="sheet-agreement"></span></p><p>시행 '+docInput('issue','시행번호',d.issue)+'　접수 '+docInput('received','접수번호',d.received)+'</p><p>우 '+docInput('postal','우편번호',d.postal)+'　'+docInput('address','주소',d.address)+'</p><p>전화 '+docInput('phone','전화',d.phone)+'　전송 '+docInput('fax','전송',d.fax)+'　/　<span class="sheet-disclosure"></span></p></div></section>';
+ return '<section class="official-sheet"><p class="sheet-motto">부천 여성·청소년과 소통 공감으로 변화를 만드는 플랫폼</p><h2>부천여성청소년재단</h2><p>수신자 '+docInput('recipient','수신자',d.recipient??'내부결재')+'</p><p>(경유) '+docInput('via','경유',d.via)+'</p><p>제　목 <strong class="reflected-title">'+safe(existing?.title??'')+'</strong></p><hr><div data-rich contenteditable="true" role="textbox" aria-label="기안문 본문">'+cleanMailHtml(d.rich??safe(existing?.body??''))+'</div><div class="official-footer"><p>협조자 <span class="sheet-agreement"></span></p><p>시행 '+docInput('issue','시행번호',d.issue)+'　접수 '+docInput('received','접수번호',d.received)+'</p><p>우 '+docInput('postal','우편번호',d.postal)+'　'+docInput('address','주소',d.address)+'</p><p>전화 '+docInput('phone','전화',d.phone)+'　전송 '+docInput('fax','전송',d.fax)+'　/　<span class="sheet-disclosure"></span></p></div></section>';
 }
 function sheetPurchase(existing){
  const purchase=existing?.details?.purchase??{},f=sheetValues(existing);
@@ -919,6 +920,395 @@ function sheetDuty(existing){
 }
 
 
+</script><script>
+/* 견본 결재문서 20건 (출장기안 10건 + 일반기안문 10건)
+ * - 서무비서와 연결되지 않았을 때(이 파일을 따로 열었을 때)만 넣습니다. docs/연동약속.md 3-4
+ * - 이미 인트라넷을 열어 본 브라우저에도 한 번만 추가하고, 사용자가 만든 문서는 건드리지 않습니다.
+ * - 사람 이름 없이 소속·직위로만 적습니다. AGENTS.md 4장, 연동약속 4장 시연 사용자(u01~u05)
+ * - 결재선·금액 기준은 data/00_기관설정서.md 4장과 8장(APV-01·02, PUR-01·02·04, TRV-06, MEL-01·03, EVT-02~08, EXP-02·05·06·07)을 따릅니다.
+ * - 문서마다 details.mock에 연동약속 3-3 결재 문서 형식이 들어 있어, 서무비서 가상 결재함에 그대로 넘길 수 있습니다.
+ */
+(()=>{try{
+ if(window.__serverBootstrap||state.sampleDocsSeeded)return;
+ const users={
+  u01:{dept:'산울림청소년센터 ○○부',position:'대리',label:'산울림청소년센터 대리'},
+  u02:{dept:'산울림청소년센터 ○○부',position:'부장',label:'산울림청소년센터 부장'},
+  u03:{dept:'산울림청소년센터',position:'센터장',label:'산울림청소년센터 센터장'},
+  u04:{dept:'',position:'대표이사',label:'대표이사'},
+  u05:{dept:'전략경영실 경영지원부',position:'부장',label:'경영지원부 부장'}
+ };
+ // 결재선: [결재 용어, user_id, 결과(approve·reject·null), 처리 시각, 의견]
+ // 직원 출장은 센터장 전결, 센터장 본인 출장은 대표이사 결재 (기관설정서 4-2)
+ const trips=[
+  {no:1,state:'approved',created:'2026-10-02T09:40',line:[['검토','u02','approve','2026-10-02T11:05'],['전결','u03','approve','2026-10-02T15:30']],
+   kind:'관내출장',start:'2026-10-07',end:'2026-10-07',begin:'14:00',finish:'17:00',visit:'부천시청',destination:'부천시',purpose:'부천시 청소년 정책 실무 협의회 참석',transport:'대중교통',
+   plans:['청소년 정책 실무 협의회 참석, 하반기 학교 밖 청소년 연계사업 일정 협의']},
+  {no:2,state:'approved',created:'2026-10-08T10:15',line:[['검토','u02','approve','2026-10-08T13:20'],['전결','u03','approve','2026-10-08T16:40']],
+   kind:'관내출장',start:'2026-10-15',end:'2026-10-15',begin:'10:00',finish:'17:00',visit:'정부서울청사',destination:'서울',purpose:'청소년 수련시설 안전관리 설명회 참석',transport:'대중교통',
+   plans:['청소년 수련시설 안전관리 설명회 참석, 안전점검 개정 사항 확인']},
+  {no:3,state:'approved',created:'2026-10-16T09:30',line:[['검토','u02','approve','2026-10-16T14:00'],['전결','u03','approve','2026-10-16T17:20']],
+   kind:'관내출장',start:'2026-10-22',end:'2026-10-22',begin:'13:00',finish:'18:00',visit:'인천광역시청',destination:'인천',purpose:'수도권 청소년시설 실무자 교류회 참석',transport:'관용차량',driver:'출장자 본인',
+   plans:['수도권 청소년시설 실무자 교류회 참석, 프로그램 운영 사례 공유']},
+  {no:4,state:'in_progress',created:'2026-11-03T10:10',line:[['검토','u02','approve','2026-11-03T14:00'],['전결','u03']],
+   kind:'관내출장',start:'2026-11-12',end:'2026-11-12',begin:'14:00',finish:'17:00',visit:'부천교육지원청',destination:'부천시',purpose:'학교 연계 청소년 프로그램 운영 협의',transport:'대중교통',
+   plans:['관내 중학교 연계 진로 프로그램 일정·장소 협의']},
+  {no:5,state:'approved',created:'2026-10-20T11:00',line:[['검토','u02','approve','2026-10-20T15:10'],['전결','u03','approve','2026-10-21T09:40']],
+   kind:'관외출장',start:'2026-10-28',end:'2026-10-28',begin:'09:00',finish:'18:00',visit:'경기도청',destination:'수원',purpose:'경기도 청소년시설 운영 실무 교육 참석',transport:'대중교통',
+   plans:['청소년시설 운영 실무 교육 이수 (복귀 후 출장복명서 제출)']},
+  {no:6,state:'submitted',created:'2026-11-04T09:30',line:[['검토','u02'],['전결','u03']],
+   kind:'관외출장',start:'2026-11-19',end:'2026-11-19',begin:'08:00',finish:'19:00',visit:'한국청소년정책연구원',destination:'세종',purpose:'청소년 정책 포럼 참석',transport:'대중교통',
+   plans:['청소년 정책 포럼 참석, 청소년 참여 정책 동향 파악 (복귀 후 출장복명서 제출)']},
+  {no:7,state:'in_progress',inbox:true,created:'2026-11-02T15:00',line:[['검토','u02','approve','2026-11-03T09:30'],['전결','u03']],
+   kind:'관외출장',start:'2026-11-24',end:'2026-11-26',begin:'09:00',finish:'18:00',visit:'국립중앙청소년수련원',destination:'천안',purpose:'청소년지도자 직무 연수 참가',transport:'대중교통',
+   plans:['입소, 청소년 활동 안전 과정 연수','청소년 상담 기초 과정 연수','수료 후 복귀 (복귀 후 출장복명서 제출)']},
+  {no:8,state:'in_progress',created:'2026-11-04T14:00',line:[['검토','u02','approve','2026-11-04T16:20'],['전결','u03']],
+   kind:'관외출장',start:'2026-11-10',end:'2026-11-11',begin:'09:00',finish:'18:00',visit:'국립평창청소년수련원',destination:'평창',purpose:'겨울방학 청소년 캠프 장소 사전 답사',transport:'관용차량',driver:'출장자 본인',
+   plans:['숙박동·프로그램실 안전 점검, 시설 담당자와 일정 협의','야외 활동 동선 확인 후 복귀']},
+  {no:9,state:'in_progress',inbox:true,created:'2026-11-03T11:00',line:[['검토','u02','approve','2026-11-03T15:10'],['전결','u03']],
+   kind:'관외출장',start:'2026-11-17',end:'2026-11-17',begin:'09:00',finish:'18:00',visit:'정부대전청사 조달청',destination:'대전',purpose:'공공조달 계약 실무 교육 참가',transport:'대중교통',
+   plans:['공공조달 계약 실무 교육 이수 (복귀 후 출장복명서 제출)']},
+  {no:10,state:'submitted',inbox:true,drafter:'u03',created:'2026-11-04T10:00',line:[['결재','u04']],
+   kind:'관외출장',start:'2026-11-26',end:'2026-11-27',begin:'09:00',finish:'18:00',visit:'국립청소년해양센터',destination:'영덕',purpose:'청소년수련시설 기관장 연수 참가',transport:'대중교통',
+   plans:['기관장 연수 참가 (청소년 활동 안전 정책)','연수 수료 후 복귀 (복귀 후 출장복명서 제출)']}
+ ];
+ // 구매: 200만원 초과면 경영지원부장 협조 + 계약 의뢰, 500만원 이하면 센터장 전결 (APV-01·02, PUR-01·02·04)
+ const drafts=[
+  {no:11,state:'approved',created:'2026-10-06T10:00',task:'구매·지출',amount:1500000,recordFolder:'2026 물품 구매',
+   title:'청소년 디지털 역량 프로그램용 태블릿 구매 품의',
+   line:[['검토','u02','approve','2026-10-06T13:00'],['전결','u03','approve','2026-10-06T17:10']],
+   body:['1. 관련: 「책임 권한 규정 시행세칙」 별표(예산 집행품의)',
+    '2. 청소년 디지털 역량 프로그램 운영에 필요한 물품을 아래와 같이 구매하고자 합니다.',
+    '　가. 품명·수량: 프로그램용 태블릿 3대',
+    '　나. 소요예산: 금1,500,000원(부가세 포함)',
+    '　다. 구매방법: 법인카드 결제(200만원 이하 물품)',
+    '　라. 결재: 추정가격 500만원 이하로 센터장 전결, 추정금액 200만원 이하로 경영지원부 협조 대상 아님',
+    '붙임  1. 견적서 1부.  끝.']},
+  {no:12,state:'in_progress',created:'2026-11-03T09:20',task:'구매·지출',amount:3000000,recordFolder:'2026 물품 구매',
+   title:'프로그램 운영용 노트북 구매 품의',
+   line:[['검토','u02','approve','2026-11-03T11:40'],['협조','u05'],['전결','u03']],
+   body:['1. 관련: 「책임 권한 규정 시행세칙」 별표(예산 집행품의), 업무매뉴얼 Ⅲ(구매·지출)',
+    '2. 청소년 프로그램 운영과 결과 정리에 필요한 노트북을 아래와 같이 구매하고자 합니다.',
+    '　가. 품명·수량: 노트북 2대',
+    '　나. 소요예산: 금3,000,000원(부가세 포함)',
+    '　다. 계약: 추정금액 200만원을 넘으므로 경영지원부장 협조 후 경영지원부에 계약을 의뢰함(계약 체결 5일 전까지)',
+    '　라. 견적: 2개 업체 비교견적',
+    '　마. 결재: 추정가격(부가세 별도) 500만원 이하로 센터장 전결',
+    '붙임  1. 비교견적서 2부.  끝.']},
+  {no:13,state:'rejected',created:'2026-10-29T10:30',task:'구매·지출',amount:2800000,recordFolder:'2026 물품 구매',
+   title:'청소년 밴드 동아리 음향장비 구매 품의',
+   line:[['검토','u02','reject','2026-10-29T14:20','추정금액(부가세 포함)이 200만원을 넘으므로 경영지원부장 협조와 경영지원부 계약 의뢰가 필요합니다. 법인카드 구매는 200만원 이하 물품만 가능하니, 2개 업체 비교견적을 붙여 다시 올려 주세요.'],['전결','u03']],
+   body:['1. 청소년 밴드 동아리 활동 지원을 위하여 음향장비를 아래와 같이 구매하고자 합니다.',
+    '　가. 품명: 음향장비 일체(믹서 1대, 스피커 2대)',
+    '　나. 소요예산: 금2,800,000원(부가세 포함)',
+    '　다. 구매방법: 법인카드 결제',
+    '붙임  1. 견적서 1부.  끝.']},
+  {no:14,state:'approved',created:'2026-10-13T09:00',task:'행사 운영',amount:3500000,recordFolder:'2026 행사 운영',
+   title:'2026 산울림 청소년 어울림 축제 운영 계획',
+   line:[['검토','u02','approve','2026-10-13T11:30'],['전결','u03','approve','2026-10-13T16:00']],
+   body:['1. 관련: 「책임 권한 규정 시행세칙」 별표 26(행사), 업무매뉴얼 Ⅲ·Ⅳ',
+    '2. 지역 청소년과 주민이 함께하는 축제를 아래와 같이 운영하고자 합니다.',
+    '　가. 일시: 2026. 10. 31.(토) 13:00~17:00',
+    '　나. 장소: 산울림청소년센터 및 앞마당',
+    '　다. 대상: 지역 청소년과 주민 약 300명',
+    '　라. 내용: 청소년 동아리 공연, 체험 부스, 진로 상담 부스',
+    '　마. 소요예산: 금3,500,000원(세부 집행은 항목별로 따로 품의)',
+    '3. 운영 유의사항',
+    '　가. 행사를 돕는 직원·자원봉사자 식비는 행사운영비로 1인 8,000원 이내 집행(단순 참가자 제외)',
+    '　나. 기념품은 기관운영업무추진비로 사전 품의 후 집행하고 물품수불부에 지급 내용을 기록',
+    '　다. 내빈 소개는 재단 의전 순서에 따름',
+    '붙임  1. 세부 운영 계획 1부.  끝.']},
+  {no:15,state:'in_progress',inbox:true,created:'2026-11-04T10:40',task:'행사 운영',amount:3280000,recordFolder:'2026 행사 운영',
+   title:'2026 산울림 청소년 어울림 축제 결과 보고',
+   line:[['검토','u02','approve','2026-11-04T14:00'],['전결','u03']],
+   body:['1. 관련: 산울림청소년센터 「2026 산울림 청소년 어울림 축제 운영 계획」(2026. 10. 13.)',
+    '2. 위 축제를 아래와 같이 마쳤기에 결과를 보고합니다.',
+    '　가. 일시·장소: 2026. 10. 31.(토) 13:00~17:00, 산울림청소년센터',
+    '　나. 참여: 청소년과 주민 약 280명',
+    '　다. 운영: 동아리 공연 6팀, 체험 부스 8개',
+    '　라. 집행액: 금3,280,000원(예산 대비 93.7%)',
+    '3. 개선할 점: 우천에 대비한 실내 동선 보완',
+    '붙임  1. 사진 자료 1부.',
+    '　　　2. 집행 내역 1부.  끝.']},
+  {no:16,state:'approved',created:'2026-10-23T09:50',task:'전문가 활용비',recordFolder:'2026 강사비 지급',visibility:'비공개',
+   title:'청소년 진로 특강 외부강사 강사비 지급',
+   line:[['검토','u02','approve','2026-10-23T13:10'],['전결','u03','approve','2026-10-23T17:00']],
+   body:['1. 관련: 「지급기준」 1장(강사비), 업무매뉴얼 Ⅲ-2-4',
+    '2. 2026. 10. 17.(토) 진행한 청소년 진로 특강의 강사비를 아래와 같이 지급하고자 합니다.',
+    '　가. 강사: 외부강사 1명',
+    '　나. 강의시간: 120분(2시간으로 산정)',
+    '　다. 지급액: 강사 등급표에 따라 최초 1시간과 초과 1시간을 나누어 산정(붙임 지급내역서)',
+    '　라. 원천징수: 기타소득 8.8%',
+    '　마. 강사 성범죄·아동학대 범죄경력 조회 완료',
+    '붙임  1. 강사비 지급내역서 1부.  끝.']},
+  {no:17,state:'approved',created:'2026-10-27T10:00',task:'전문가 활용비',amount:400000,recordFolder:'2026 위원회 운영',visibility:'비공개',
+   title:'산울림청소년센터 운영위원회 외부위원 참석수당 지급',
+   line:[['검토','u02','approve','2026-10-27T13:30'],['전결','u03','approve','2026-10-27T16:50']],
+   body:['1. 관련: 업무매뉴얼 Ⅲ(예산집행품의), 「지급기준」',
+    '2. 2026. 10. 22.(목) 개최한 운영위원회 외부위원 참석수당을 아래와 같이 지급하고자 합니다.',
+    '　가. 대상: 외부위원 4명',
+    '　나. 회의시간: 10:00~11:30(2시간 이내)',
+    '　다. 지급액: 1인 100,000원, 총 400,000원(2시간을 넘지 않아 추가 수당 없음)',
+    '　라. 원천징수: 기타소득 8.8%',
+    '붙임  1. 참석수당 지급내역서 1부.  끝.']},
+  {no:18,state:'submitted',created:'2026-11-04T11:20',task:'구매·지출',amount:150000,recordFolder:'2026 회의 운영',
+   title:'청소년 참여기구 연계 협의회 회의비 집행 품의',
+   line:[['검토','u02'],['전결','u03']],
+   body:['1. 관련: 업무매뉴얼 Ⅲ-1-5(식·간식비)',
+    '2. 지역 청소년 참여기구 연계 협의회 개최에 따른 회의비를 아래와 같이 집행하고자 합니다.',
+    '　가. 일시: 2026. 11. 13.(금) 15:00~17:00',
+    '　나. 참석: 외부 참석자 7명, 센터 직원 3명(총 10명)',
+    '　다. 집행액: 1인 15,000원 × 10명 = 150,000원',
+    '　라. 외부 참석자가 함께하는 회의로 회의비 집행 대상임(내부 직원끼리의 회의는 집행 불가)',
+    '붙임  1. 협의회 개최 계획 1부.  끝.']},
+  {no:19,state:'in_progress',created:'2026-11-02T13:00',task:'행사 운영',amount:1800000,recordFolder:'2026 현장체험활동',
+   title:'청소년 현장체험활동 버스 임차 품의',
+   line:[['검토','u02','approve','2026-11-02T16:30'],['전결','u03']],
+   body:['1. 관련: 업무매뉴얼 Ⅲ-1-8(버스 임차)',
+    '2. 청소년 현장체험활동 이동을 위하여 버스를 아래와 같이 임차하고자 합니다.',
+    '　가. 운행일: 2026. 11. 28.(토)',
+    '　나. 차량: 45인승 버스 2대',
+    '　다. 소요예산: 금1,800,000원(부가세 포함)',
+    '　라. 안전 확인: 임차업체 서류 7종 확인, 운행 7일 전(2026. 11. 21.)까지 차량운행계획서 제출, 출발 전 탑승자 안전교육 실시',
+    '붙임  1. 견적서 1부.',
+    '　　　2. 차량운행계획서(초안) 1부.  끝.']},
+  {no:20,state:'draft',created:'2026-11-05T09:10',task:'기안·결재',recordFolder:'2026 직원 교육',
+   title:'2026년 하반기 직원 역량강화 교육 참가 계획',
+   line:[['검토','u02'],['전결','u03']],
+   body:['1. 직원 직무역량 향상을 위하여 아래 교육에 참가하고자 합니다.',
+    '　가. 교육명: (작성 중)',
+    '　나. 일시: 2026. 12.',
+    '　다. 대상: 산울림청소년센터 직원 2명',
+    '붙임  1. 교육 안내문 1부.  끝.']}
+ ];
+ const at=t=>t?t+':00':null;
+ const short=t=>Number(t.slice(5,7))+'. '+Number(t.slice(8,10))+'. '+t.slice(11,16);
+ const long=t=>t.slice(0,4)+'년 '+Number(t.slice(5,7))+'월 '+Number(t.slice(8,10))+'일';
+ const day=x=>x+'('+['일','월','화','수','목','금','토'][new Date(x+'T12:00:00').getDay()]+')';
+ const places={approved:['결재완료문서','결재완료'],rejected:['반려/회수문서','반려'],draft:['임시보관문서','임시저장']};
+ const where=d=>places[d.state]??(d.inbox?['결재대기문서','결재대기']:['상신문서','결재중']);
+ const mockLine=d=>d.line.map(([type,user_id,result=null,when=null,comment=''],i)=>({order:i+1,type,user_id,label:users[user_id].label,result,at:at(when),comment}));
+ const screenLine=d=>d.line.map(([type,u])=>({role:type==='협조'?'협조':'결재',department:users[u].dept,rank:users[u].position,name:'○○○',type,user_id:u,label:users[u].label}));
+ const lineTable=(d,line)=>{
+  const mark=p=>p.result==='approve'?'승인 '+short(p.at):p.result==='reject'?'반려 '+short(p.at):['rejected','draft'].includes(d.state)?'—':'대기';
+  return '<table><tbody><tr><th>구분</th><th>기안</th>'+line.map(p=>'<th>'+p.type+'</th>').join('')+'</tr><tr><th>결재자</th><td>'+safe(users[d.drafter].label)+'</td>'+line.map(p=>'<td>'+safe(p.label)+'</td>').join('')+'</tr><tr><th>처리</th><td>'+(d.state==='draft'?'작성 중':'상신 '+short(d.created))+'</td>'+line.map(p=>'<td>'+mark(p)+'</td>').join('')+'</tr></tbody></table>'+line.filter(p=>p.comment).map(p=>'<p><strong>반려 의견</strong> ('+safe(p.label)+') '+safe(p.comment)+'</p>').join('');
+ };
+ const generalSheet=(d,line)=>{
+  const root=new DOMParser().parseFromString(sheetGeneral({title:d.title,body:'',details:{recipient:'내부결재',rich:d.rich}}),'text/html').body;
+  root.querySelectorAll('input').forEach(i=>i.replaceWith(document.createTextNode(i.value)));
+  root.querySelectorAll('[contenteditable]').forEach(e=>e.removeAttribute('contenteditable'));
+  root.querySelectorAll('.reflected-title').forEach(e=>e.textContent=d.title);
+  root.querySelectorAll('.sheet-agreement').forEach(e=>e.textContent=line.filter(p=>p.type==='협조').map(p=>p.label).join(', ')||'없음');
+  root.querySelectorAll('.sheet-disclosure').forEach(e=>e.textContent=d.visibility);
+  root.querySelector('.official-footer')?.insertAdjacentHTML('beforebegin','<h3>결재</h3>'+lineTable(d,line));
+  return sheetSanitize(root.innerHTML);
+ };
+ const tripSheet=(d,a,plans,line)=>{
+  const row=(l1,v1,l2,v2)=>'<tr><th>'+l1+'</th><td>'+safe(v1)+'</td><th>'+l2+'</th><td>'+safe(v2)+'</td></tr>';
+  return sheetSanitize('<section class="official-sheet"><h2>출장신청서</h2><h3>결재라인</h3>'+lineTable(d,line)+'<h3>출장정보</h3><table><tbody>'
+   +row('출장기간',day(a.start)+' ~ '+day(a.end),'일수',(plans.length-1)+'박'+plans.length+'일')
+   +row('출장자',a.person,'인원','1명')+row('출발지',a.origin,'도착지',a.destination)
+   +row('방문처',a.visit,'출장목적',a.purpose)+row('출장구분',a.kind,'교통수단',a.transport+(a.driver?' (운전: '+a.driver+')':''))
+   +'</tbody></table><h3>일별 업무계획</h3><table><thead><tr><th>일자</th><th>시작</th><th>종료</th><th>업무내용</th></tr></thead><tbody>'
+   +plans.map(p=>'<tr><td>'+day(p.date)+'</td><td>'+a.begin+'</td><td>'+a.finish+'</td><td>'+safe(p.body)+'</td></tr>').join('')
+   +'</tbody></table><p class="submittext">상기와 같이 출장신청서를 제출합니다.</p><p class="submitdate">'+long(d.created)+'</p></section>');
+ };
+ const record=(d,form,template,title,contents,extra)=>{
+  const [folder,status]=where(d),line=screenLine(d);
+  const mock={doc_no:'DEMO-'+d.created.slice(0,10).replaceAll('-','')+'-'+String(d.no).padStart(4,'0'),state:d.state,title,task:d.task,form_code:form,contents,drafter:d.drafter,
+   ...(d.amount?{amount_won:d.amount}:{}),approval_line:mockLine(d),attachments:[],package_id:null,created:at(d.created),submitted:d.state==='draft'?null:at(d.created)};
+  return {id:'sample-doc-'+String(d.no).padStart(2,'0'),type:'전자결재',kind:'생산문서',template,title,body:contents,
+   party:line.filter(p=>p.role==='결재').map(p=>p.label).join(' → '),date:d.created.slice(0,10),folder,status,sample:true,details:{...extra,approvalLine:line,mock}};
+ };
+ const added=[];
+ for(const t of trips){
+  t.drafter??='u01';t.task='출장·여비';
+  const person=users[t.drafter].label;
+  const plans=t.plans.map((body,i)=>({date:new Date(Date.parse(t.start)+i*86400000).toISOString().slice(0,10),body}));
+  const a={kind:t.kind,person,start:t.start,end:t.end,begin:t.begin,finish:t.finish,visit:t.visit,purpose:t.purpose,origin:'산울림청소년센터',destination:t.destination,transport:t.transport,via:'',distance:'',driver:t.driver??''};
+  const title='('+t.start.slice(5)+')'+t.kind+'('+person+')';
+  const contents=[person+' · '+t.start+' ~ '+t.end+' · '+t.visit,t.purpose,...plans.map(p=>p.date+' '+p.body)].join('\n');
+  const rec=record(t,'F02','출장신청서',title,contents,{trip:true,application:a,plans,agreement:'',sheetHTML:tripSheet(t,a,plans,mockLine(t))});
+  added.push(rec,{...rec,id:'sample-trip-'+String(t.no).padStart(2,'0'),type:'임직원업무관리',folder:'출장신청현황',approvalId:rec.id});
+ }
+ for(const g of drafts){
+  g.drafter??='u01';g.visibility??='공개';
+  g.rich=g.body.map(x=>'<p>'+safe(x)+'</p>').join('');
+  added.push(record(g,'F01','일반기안문',g.title,g.body.join('\n'),{recipient:'내부결재',via:'',rich:g.rich,recordFolder:g.recordFolder,visibility:g.visibility,urgency:'일반문서',security:'일반문서',documentType:'내부결재',sender:'산울림청소년센터장',sheetHTML:generalSheet(g,mockLine(g))}));
+ }
+ const ids=new Set(state.rows.map(r=>r.id));
+ state.rows.push(...added.filter(r=>!ids.has(r.id)));
+ state.sampleDocsSeeded=true;
+ persist();render();
+}catch(error){console.warn('견본 결재문서를 넣지 못했습니다.',error)}})();
+</script><style>
+.fe-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0 14px}.fe-wide{grid-column:1/-1}.fe-req{color:#c2334a}.fe-meta{color:#5d6b7a;font-size:12px;margin:0 0 8px}
+.fe-line{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px;background:#f5f8fc;border:1px solid #dce3eb}.fe-line button,.fe-table button{border:1px solid #d4dce5;padding:5px 9px;background:#fafbfc}
+.fe-table{overflow-x:auto;margin-bottom:10px}.fe-table table{width:100%;min-width:620px;border-collapse:collapse;font-size:12px}.fe-table th,.fe-table td{border:1px solid #d6dce3;padding:3px}.fe-table th{background:#eef3f6;font-weight:normal}dialog .fe-table input{margin:0;padding:5px;min-width:60px}
+.fe-notice{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px}.fe-notice th,.fe-notice td{border:1px solid #d6dce3;padding:7px;text-align:left}.fe-notice th{width:28%;background:#f7f7f7}.official-sheet .fe-kv th{width:28%}
+</style><script>
+/* 서식 작성 환경: data/2_기관/4_서식의 서식을 전자결재 > 결재작성에서 작성·임시저장·상신할 수 있게 합니다.
+ * - 서식 원본은 data/에만 있습니다 (AGENTS.md 2장). 여기에는 화면 입력 칸만 두고 작성 안내 문구는 옮기지 않습니다.
+ *   예외: 개인정보 수집·이용 동의서의 "알리는 사항" 4줄은 동의 대상 내용이라 화면에 그대로 보여 줍니다.
+ * - 이미 있는 양식은 그대로 연결합니다: 기안문 → 일반기안문, 출장신청서 → 출장신청서(근태 화면), 물품매입 품의 → 물품매입(수리제조)품의 및 요구서
+ * - 칸 이름은 서식 파일의 항목 이름을 따릅니다. 서식 칸이 바뀌면 아래 정의(source에 적은 파일)도 함께 고칩니다.
+ */
+const formSchemas={};
+(()=>{try{
+ const T=(key,label,o={})=>({key,label,type:'text',...o});
+ const D=(key,label,o={})=>T(key,label,{...o,type:'date'});
+ const H=(key,label,o={})=>T(key,label,{...o,type:'time'});
+ const N=(key,label,o={})=>T(key,label,{...o,type:'number'});
+ const M=(key,label,o={})=>T(key,label,{...o,type:'money'});
+ const A=(key,label,o={})=>T(key,label,{...o,type:'textarea'});
+ const S=(key,label,options,o={})=>T(key,label,{...o,type:'select',options});
+ const R={required:true};
+ const add=(name,schema)=>{formSchemas[name]=schema;docs.push(name);(docGroups[schema.task]??=[]).push(name)};
+ docs.push('출장신청서');docGroups['출장·여비'].push('출장신청서');
+ add('출장복명서',{task:'출장·여비',source:'F03_출장복명서.md',titleHint:'(출장지) 출장 복명',sections:[
+  {title:'출장 개요',fields:[T('related','관련 문서',{placeholder:'출장신청서 문서번호 또는 제목',wide:true}),T('traveler','출장자',{...R,placeholder:'부서 / 직급 / 이름 (동행자 포함)',wide:true}),D('start','출장 시작일',R),D('end','출장 종료일',R),T('place','출장지',R),T('purpose','목적',{...R,wide:true})]},
+  {title:'수행 내용',fields:[A('work','수행 내용',{...R,placeholder:'일정별 또는 활동별로 적습니다'})]},
+  {title:'결과 및 조치사항',fields:[A('result','결과 및 조치사항',{...R,placeholder:'출장 결과, 후속 조치, 공유할 사항'})]},
+  {title:'여비 청구 내역',table:{key:'expenses',columns:['항목','산출 근거','금액(원)'],fixedRows:['운임','일비','숙박비','식비'],sum:[2]},
+   fields:[S('pooled','공용차량·부서 교통카드·차량 임차 사용',['예','아니오']),S('flight','항공 이용',['예','아니오'])]}
+ ],validate:v=>v.start&&v.end&&v.end<v.start?'출장 종료일은 시작일과 같거나 뒤여야 합니다.':''});
+ add('휴가(연차) 신청서',{task:'복무',source:'F04_휴가신청서.md',titleHint:'휴가 신청 (유형, 기간)',sections:[
+  {title:'신청 내용',fields:[T('person','대상자',{...R,placeholder:'부서 / 이름'}),S('kind','유형',['연차','반차','보건휴가','외출','조퇴','배우자 출산휴가','무급휴가','업무상 병가','업무 외 병가','공가','경조사휴가','포상휴가','가족돌봄휴가','대체휴일'],R),D('startDate','시작일',R),H('startTime','시작시간'),D('endDate','종료일',R),H('endTime','종료시간'),N('days','신청 일수',{step:'0.5'}),N('deduct','연차 차감',{step:'0.5'}),T('deputy','직무대행자',{placeholder:'부서 / 이름'}),A('reason','사유',{placeholder:'연차·외출·조퇴는 적지 않습니다'})]},
+  {title:'연차 현황',fields:[N('year','기준연도'),N('total','총 연차',{step:'0.5'}),N('used','사용',{step:'0.5'}),N('remain','잔여',{step:'0.5'}),N('pending','결재 대기',{step:'0.5'})]}
+ ],validate:v=>v.startDate&&v.endDate&&v.endDate<v.startDate?'종료일은 시작일과 같거나 뒤여야 합니다.':''});
+ add('지출결의서',{task:'구매·지출',source:'F06_지출결의서.md',titleHint:'(품명) 대금 지출',sections:[
+  {title:'종류와 회계연도',fields:[S('kind','지출결의서 종류',['(일반) 지출결의서 - 기안 포함','(일반) 지출결의서 - 기안 미포함','구입과 지출결의서','공사 지출결의서'],{...R,wide:true}),N('fiscalYear','회계연도',R)]},
+  {title:'세출과목',fields:[T('policy','정책'),T('unit','단위'),T('detail','세부'),T('item','편성·통계목'),T('note','부기')]},
+  {title:'날짜',fields:[D('proposed','발의'),D('ledger','원인행위부 기재'),D('contract','계약'),D('inspected','검수')]},
+  {title:'금액과 지급',fields:[M('amount','금액(원)',R),A('summary','적요',{...R,placeholder:'지급의 뜻, 품명·수량, 산출내역 등'}),T('account','거래은행 / 계좌번호',{placeholder:'카드 결제는 비워 둡니다'}),T('payee','채주 (상호·성명)',R)]}
+ ]});
+ add('물품검수조서',{task:'구매·지출',source:'F07_물품검수조서.md',titleHint:'(계약건명) 물품 검수',sections:[
+  {title:'검수 내용',fields:[T('contract','계약건명',{...R,wide:true}),T('supplier','납품자 상호'),T('supplierRep','납품자 성명'),M('amount','계약금액(원)',R),D('contractDate','계약체결 연월일'),D('dueDate','납품기한'),D('deliveredDate','납품 연월일',R),D('inspectDate','검사(수) 연월일',R),T('place','검사(수) 장소'),S('asset','물품관리시스템 등록',['비대상 (소모품)','대상 - 등록','대상 - 미등록'])]},
+  {title:'검사자·검수자',fields:[T('inspector','검사자 (담당자)',{placeholder:'소속 / 직위 / 성명'}),T('receiver','검수자 (부장)',{placeholder:'소속 / 직위 / 성명'})]},
+  {title:'물품검사(수) 내역',table:{key:'items',columns:['품명','규격','단위','단가(원)','계약상 수량','전회까지 납품수량','금회 검수량','사용부서'],rows:3}}
+ ],validate:v=>v.items.some(r=>r[0])?'':'물품검사(수) 내역에 품명을 한 줄 이상 적어 주세요.'});
+ add('관내업체 미사용 사유서',{task:'구매·지출',source:'F08_관내업체미사용사유서.md',titleHint:'(건명) 관내업체 미사용 사유',sections:[
+  {title:'사용 내용',fields:[T('subject','건명',{...R,wide:true}),M('budget','품의(도급)액(원)',R),T('spec','규격 / 수량 / 금액'),T('use','용도, 활용도'),T('company','업체명 / 소재지',R),T('companyInfo','대표자 / 업태 / 종목')]},
+  {title:'관내업체 미사용 사유 (해당하는 칸에 적기)',fields:[A('reason1','(1) 지역 생산품이 없는 경우'),A('reason2','(2) 품질·성능이 현저히 떨어지거나 가격이 현저히 비싼 경우'),A('reason3','(3) 그 밖의 부득이한 경우')]},
+  {title:'작성·확인',fields:[T('writer','작성자 (담당자)',R),T('checker','확인자 (부장)')]}
+ ],validate:v=>v.reason1||v.reason2||v.reason3?'':'관내업체 미사용 사유를 하나 이상 적어 주세요.'});
+ add('행사 계획서',{task:'행사 운영',source:'F09_계획서.md',titleHint:'(행사명) 운영계획',autoTitle:v=>v.eventName?v.eventName+' 운영계획':'',sections:[
+  {title:'행사 개요',fields:[T('eventName','행사명',{...R,wide:true}),T('related','관련 문서번호'),T('purpose','행사 목적',R),D('date','일시',R),H('start','시작'),H('end','종료'),T('place','장소',R),T('target','대상'),N('totalCount','연 인원'),N('realCount','실 인원')]},
+  {title:'주요내용',fields:[A('content','주요내용',R)]},
+  {title:'예산',fields:[M('budget','소요예산(원)'),T('budgetItem','예산과목',{placeholder:'정책 / 단위 / 세부 / 편성 / 통계목',wide:true})]},
+  {title:'안전·의전',fields:[A('safety','안전관리',{placeholder:'외부 활동·차량 이용 시 안전 대책'}),A('guests','내빈',{placeholder:'초청 내빈과 의전 담당자'})]}
+ ]});
+ add('행사 결과보고서',{task:'행사 운영',source:'F10_결과보고서.md',titleHint:'(행사명) 결과보고',autoTitle:v=>v.eventName?v.eventName+' 결과보고':'',sections:[
+  {title:'행사 개요',fields:[T('eventName','행사명',{...R,wide:true}),T('related','계획 문서번호'),D('date','일시',R),H('start','시작'),H('end','종료'),T('place','장소',R),N('planned','계획 인원'),N('actual','실제 인원',R)]},
+  {title:'결과',fields:[A('content','주요내용',R),M('spent','집행예산(원)'),N('ratio','계획 대비(%)',{step:'0.1'}),A('outcome','성과 및 개선사항',R)]}
+ ]});
+ add('강의확인서',{task:'전문가 활용비',source:'F17_강의확인서.md',visibility:'비공개',titleHint:'(사업명) 강의확인서',sections:[
+  {title:'강의',fields:[T('project','사업명',{...R,wide:true}),D('date','강의일',R),H('start','시작'),H('end','종료'),N('hours','강의 시간',{step:'0.5'}),T('place','강의장소'),A('content','강의내용')]},
+  {title:'강사 (개인정보가 들어가는 비공개 문서)',fields:[T('lecturer','강사 성명',{...R,placeholder:'○○○'}),T('rrn','주민등록번호',{placeholder:'시연용: 실제 번호를 넣지 마세요'}),T('address','주소'),T('phone','연락처'),T('account','입금 계좌',{placeholder:'은행 / 계좌번호 / 예금주',wide:true}),M('total','총금액(원)',R),A('calc','산출 내역',{...R,placeholder:'최초 1시간과 초과 시간을 나누어 적습니다'})]}
+ ]});
+ add('강사비 지급내역서',{task:'전문가 활용비',source:'F18_강사비지급내역서.md',visibility:'비공개',titleHint:'(사업명) 강사비 지급내역',sections:[
+  {title:'사업',fields:[T('project','사업명',{...R,wide:true}),T('when','강의일시·장소',{wide:true})]},
+  {title:'지급 내역',table:{key:'payments',columns:['성명','강사 등급','강의시간','산출 (최초 + 초과)','지급액(세전)','소득 구분','소득세','지방소득세','실지급액','은행','계좌번호'],rows:2,sum:[4,6,7,8]}},
+  {title:'이체명세서',table:{key:'transfers',columns:['예금주','계좌번호','금액(원)','은행'],rows:2,sum:[2]}}
+ ],validate:v=>v.payments.some(r=>r[0]&&r[4])?'':'지급 내역에 성명과 지급액을 한 줄 이상 적어 주세요.'});
+ add('강사일지',{task:'전문가 활용비',source:'F19_강사일지.md',titleHint:'(  )월 강사일지',autoTitle:v=>v.month?v.month+'월 강사일지'+(v.program?' ('+v.program+')':''):'',sections:[
+  {title:'기본 정보',fields:[N('month','월',{...R,min:'1',max:'12'}),T('lecturer','강사 성명',{placeholder:'○○○'}),T('program','프로그램명',R),T('lectureTime','강의 시간')]},
+  {title:'강의 기록',table:{key:'sessions',columns:['강의일','강의 내용','특이사항','총인원','출석','결석','강사 확인'],rows:4}}
+ ],validate:v=>v.sessions.some(r=>r[0]||r[1])?'':'강의 기록을 한 줄 이상 적어 주세요.'});
+ add('개인정보 수집·이용 동의서',{task:'전문가 활용비',source:'F20_개인정보수집이용동의서.md',visibility:'비공개',titleHint:'강사 개인정보 수집·이용 동의서',sections:[
+  {title:'알리는 사항',notice:[['수집·이용 목적','강사 섭외·관리, 강사비 지급, 원천징수 신고, 성범죄경력·아동학대 범죄전력 조회'],['수집 항목','성명, 주민등록번호, 주소, 연락처, 계좌번호, 학력·경력 (이력서)'],['보유·이용 기간','관계 법령(소득세법 등)과 재단 기록물 보존기간에 따른 기간'],['동의를 거부할 권리','동의를 거부할 수 있습니다. 다만 거부하면 강사비 지급과 원천징수 신고를 할 수 없어 강의 위촉이 어려울 수 있습니다.']]},
+  {title:'동의',fields:[S('agree','개인정보 수집·이용',['동의합니다','동의하지 않습니다'],R),D('date','작성일',R),T('name','성명',{...R,placeholder:'○○○'})]}
+ ]});
+
+ const lineLabel=p=>[p.department,p.rank,p.name].filter(Boolean).join(' ');
+ const num=v=>Number(String(v??'').replace(/[^\d.-]/g,''))||0;
+ const show=(f,v)=>f.type==='money'&&v!==''&&v!=null?num(v).toLocaleString('ko-KR')+'원':String(v??'');
+ const fieldsOf=s=>s.fields??[];
+ const control=(f,v)=>{
+  const name='f_'+f.key,ph=f.placeholder?' placeholder="'+safe(f.placeholder)+'"':'';
+  if(f.type==='textarea')return '<textarea name="'+name+'"'+ph+'>'+safe(v)+'</textarea>';
+  if(f.type==='select')return '<select name="'+name+'"><option value="">선택</option>'+f.options.map(o=>'<option'+(o===v?' selected':'')+'>'+safe(o)+'</option>').join('')+'</select>';
+  return '<input name="'+name+'" type="'+(f.type==='money'?'number':f.type)+'" value="'+safe(v)+'"'+ph+(f.type==='money'?' min="0" step="1"':'')+(f.step?' step="'+f.step+'"':'')+(f.min?' min="'+f.min+'"':'')+(f.max?' max="'+f.max+'"':'')+'>';
+ };
+ const fieldHtml=(f,values)=>'<label class="'+(f.wide||f.type==='textarea'?'fe-wide':'')+'">'+safe(f.label)+(f.required?' <span class="fe-req" aria-hidden="true">*</span>':'')+control(f,values[f.key]??'')+'</label>';
+ const rowHtml=(t,r=[])=>'<tr>'+t.columns.map((c,ci)=>'<td><input aria-label="'+safe(c)+'" value="'+safe(r[ci]??'')+'"'+(t.fixedRows&&ci===0?' readonly':'')+'></td>').join('')+'</tr>';
+ const sumOf=(rows,ci)=>rows.reduce((n,r)=>n+num(r[ci]),0);
+ const tableHtml=(t,values)=>{
+  const saved=values[t.key];
+  const rows=t.fixedRows?t.fixedRows.map((label,i)=>[label,...(saved?.[i]?.slice(1)??[])]):(saved?.length?saved:Array.from({length:t.rows??3},()=>[]));
+  return '<div class="fe-table" data-table="'+t.key+'"><table><thead><tr>'+t.columns.map(c=>'<th>'+safe(c)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>rowHtml(t,r)).join('')+'</tbody>'
+   +(t.sum?'<tfoot><tr>'+t.columns.map((c,ci)=>'<td>'+(ci===0?'계':t.sum.includes(ci)?'<output data-sum="'+ci+'">0</output>':'')+'</td>').join('')+'</tr></tfoot>':'')+'</table>'
+   +(t.fixedRows?'':'<button type="button" data-fe-add="'+t.key+'">행 추가</button> <button type="button" data-fe-remove="'+t.key+'">마지막 행 삭제</button>')+'</div>';
+ };
+ const noticeHtml=rows=>'<table class="fe-notice"><tbody>'+rows.map(([k,v])=>'<tr><th>'+safe(k)+'</th><td>'+safe(v)+'</td></tr>').join('')+'</tbody></table>';
+ const sectionHtml=(s,values)=>'<h3>'+safe(s.title)+'</h3>'+(s.notice?noticeHtml(s.notice):'')+(s.table?tableHtml(s.table,values):'')+(s.fields?'<div class="fe-grid">'+s.fields.map(f=>fieldHtml(f,values)).join('')+'</div>':'');
+ const filledRows=(t,rows)=>(rows??[]).filter(r=>r.slice(t.fixedRows?1:0).some(Boolean));
+ const staticTable=(t,rows)=>{
+  const filled=filledRows(t,rows);
+  if(!filled.length)return '<p>내용 없음</p>';
+  return '<table><thead><tr>'+t.columns.map(c=>'<th>'+safe(c)+'</th>').join('')+'</tr></thead><tbody>'+filled.map(r=>'<tr>'+t.columns.map((c,ci)=>'<td>'+safe(r[ci]??'')+'</td>').join('')+'</tr>').join('')
+   +(t.sum?'<tr>'+t.columns.map((c,ci)=>'<td>'+(ci===0?'계':t.sum.includes(ci)?sumOf(filled,ci).toLocaleString('ko-KR'):'')+'</td>').join('')+'</tr>':'')+'</tbody></table>';
+ };
+ const kv=rows=>'<table class="fe-kv"><tbody>'+rows.map(([k,v])=>'<tr><th>'+safe(k)+'</th><td>'+safe(v).replace(/\n/g,'<br>')+'</td></tr>').join('')+'</tbody></table>';
+ const sheetOf=(template,schema,title,values,lines)=>sheetSanitize('<section class="official-sheet"><h2>'+safe(template)+'</h2>'
+  +kv([['제　목',title],['결재라인',lines.map(p=>p.role+' '+lineLabel(p)).join(' → ')||'지정 안 됨'],['공개여부',schema.visibility??'공개']])
+  +schema.sections.map(s=>'<h3>'+safe(s.title)+'</h3>'+(s.notice?kv(s.notice):'')+(s.table?staticTable(s.table,values[s.table.key]):'')+(s.fields?kv(s.fields.map(f=>[f.label,show(f,values[f.key])])):'')).join('')
+  +'<p class="sheet-date">'+dateKey(new Date())+'</p></section>');
+ const plainOf=(schema,values)=>schema.sections.flatMap(s=>[...fieldsOf(s).filter(f=>values[f.key]).map(f=>f.label+': '+show(f,values[f.key])),...(s.table?filledRows(s.table,values[s.table.key]).map(r=>r.filter(Boolean).join(' / ')):[])]).join('\n');
+
+ const formEditor=(template,existing)=>{
+  const schema=formSchemas[template],data=existing?.details??{},saved=data.values??{};
+  let lines=structuredClone(data.approvalLine??[]);
+  const startTitle=existing?.title&&existing.title!=='제목 없음'?existing.title:'';
+  showWide('<form id="formEditor" novalidate>'+dialogTop(template)+'<div class="draftbody"><p class="fe-meta">'+safe(schema.task)+' 서식 · 원본 data/2_기관/4_서식/'+safe(schema.source)+'</p>'
+   +'<label>제목 <span class="fe-req" aria-hidden="true">*</span><input name="f__title" value="'+safe(startTitle)+'" placeholder="'+safe(schema.titleHint??'')+'"></label>'
+   +'<h3>결재라인</h3><div class="fe-line"><span id="feLine"></span><button type="button" id="feLineEdit">결재라인지정</button></div>'
+   +schema.sections.map(s=>sectionHtml(s,saved)).join('')+'<p class="official-error" id="feError" role="alert"></p></div></form>');
+  const form=$('formEditor');
+  const tableOf=key=>schema.sections.find(s=>s.table?.key===key).table;
+  const drawLine=()=>{$('feLine').textContent=lines.map(p=>p.role+' '+lineLabel(p)).join(' → ')||'결재라인을 지정해 주세요.'};
+  const sums=()=>form.querySelectorAll('.fe-table').forEach(box=>{
+   const rows=[...box.querySelectorAll('tbody tr')].map(tr=>[...tr.querySelectorAll('input')].map(i=>i.value));
+   box.querySelectorAll('[data-sum]').forEach(o=>o.textContent=sumOf(rows,Number(o.dataset.sum)).toLocaleString('ko-KR'));
+  });
+  const collect=()=>{
+   const out={};
+   for(const s of schema.sections){
+    for(const f of fieldsOf(s))out[f.key]=form.elements['f_'+f.key].value.trim();
+    if(s.table)out[s.table.key]=[...form.querySelectorAll('[data-table="'+s.table.key+'"] tbody tr')].map(tr=>[...tr.querySelectorAll('input')].map(i=>i.value.trim()));
+   }
+   return out;
+  };
+  drawLine();sums();
+  $('feLineEdit').onclick=()=>editOfficialLine(lines,next=>{lines=next;drawLine()});
+  form.addEventListener('input',sums);
+  form.addEventListener('click',e=>{
+   const plus=e.target.closest('[data-fe-add]'),minus=e.target.closest('[data-fe-remove]');
+   if(plus)form.querySelector('[data-table="'+plus.dataset.feAdd+'"] tbody').insertAdjacentHTML('beforeend',rowHtml(tableOf(plus.dataset.feAdd)));
+   if(minus){const body=form.querySelector('[data-table="'+minus.dataset.feRemove+'"] tbody');if(body.rows.length>1)body.lastElementChild.remove();sums()}
+  });
+  form.onsubmit=e=>{
+   e.preventDefault();
+   const draft=e.submitter?.value==='draft',values=collect();
+   const title=form.elements.f__title.value.trim()||schema.autoTitle?.(values)||'';
+   if(!draft){
+    const missing=[...(title?[]:['제목']),...schema.sections.flatMap(fieldsOf).filter(f=>f.required&&!values[f.key]).map(f=>f.label)];
+    if(!lines.some(p=>p.role==='결재'))missing.push('결재라인 (결재 1명 이상)');
+    const problem=missing.length?'다음 항목을 입력해 주세요: '+missing.join(', '):schema.validate?.(values)||'';
+    if(problem){$('feError').textContent=problem;return}
+    if(!confirm('작성한 문서를 상신하시겠습니까?'))return;
+   }
+   saveDoc({type:'전자결재',kind:'생산문서',template,title:title||'제목 없음',body:plainOf(schema,values),party:lines.filter(p=>p.role==='결재').map(lineLabel).join(' → '),date:dateKey(new Date()),
+    folder:draft?'임시보관문서':'상신문서',status:draft?'임시저장':'결재중',
+    details:{form:template,source:schema.source,values,approvalLine:lines,visibility:schema.visibility??'공개',sheetHTML:sheetOf(template,schema,title||'제목 없음',values,lines)}},existing);
+  };
+ };
+ const draftEditorBeforeForms=draftEditor;
+ draftEditor=function(template,existing){
+  if(formSchemas[template]){formEditor(template,existing);return}
+  if(template==='출장신청서'&&!existing){tripEditor();return}
+  draftEditorBeforeForms(template,existing);
+ };
+}catch(error){console.warn('서식 작성 화면을 준비하지 못했습니다.',error)}})();
 </script></html>
 
 
