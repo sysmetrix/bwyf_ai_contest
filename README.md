@@ -14,7 +14,7 @@ bwyf_ai_contest/
 ├─ intranet/        가상 인트라넷 (모의 그룹웨어)        준호
 ├─ AGENTS.md        모든 AI가 따르는 공통 규칙          원하
 ├─ 시작하기.md       팀원용 첫 안내                      원하
-├─ docs/            협업가이드, 연동약속                원하
+├─ docs/            협업가이드, 연동약속, 이관요청문    원하
 ├─ .github/         PR 양식, 폴더별 리뷰어(CODEOWNERS)  원하
 └─ .githooks/       main 직접 커밋·푸시 막기            원하
 ```
