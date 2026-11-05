@@ -16,3 +16,7 @@ data_backups/
 .backup_*
 .venv/
 .idea/
+node_modules/
+desktop/
+*.exe
+*.msi
