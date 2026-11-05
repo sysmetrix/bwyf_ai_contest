@@ -1,0 +1,23 @@
+# 지자체형 기본 프로필 (새 기관을 만들 때 출발점)
+org:
+  id: ""
+  name: ""
+  type: 지자체형
+rule_layers: [common, org, dept]
+approval:
+  line: [담당, 팀장, 과장, 국장]
+  thresholds:
+    - {max_won: 1000000, approver: 팀장}
+    - {max_won: 10000000, approver: 과장}
+    - {max_won: null, approver: 국장}
+deadlines:
+  travel_settlement_days: null
+  leave_request_days_before: null
+allowances:
+  daily_won: null
+purchase:
+  single_quote_limit_won: null
+terms: {}
+forms: {}
+practice_notes: []
+sources: {}
