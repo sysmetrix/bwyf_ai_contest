@@ -282,6 +282,7 @@ modules['임직원업무관리'].create='근태신청서';
 state.rows.forEach(r=>{if(r.folder==='근태신청내역')r.folder='개인근태신청현황'});
 const priorForm=openForm, priorRender=render;
 const docs=['일반기안문','일반기안문(위탁기관-비전자)','보고양식','물품매입(수리제조)품의 및 요구서','공사(수선)집행 품의요구서','일직근무명령서','주간업무회의록'];
+const docGroups={'출장·여비':[],'복무':['일직근무명령서'],'구매·지출':['물품매입(수리제조)품의 및 요구서','공사(수선)집행 품의요구서'],'행사 운영':[],'전문가 활용비':[]};
 let catalogQuery='',catalogGroup='전체양식';
 const tile=(name,attr)=>'<button class="formtile"'+attrs(attr,name)+'><span>'+svg(attr==='trip'?'case':'board')+'</span><strong>'+safe(name)+'</strong><span aria-hidden="true">›</span></button>';
 render=function(){
@@ -289,8 +290,8 @@ render=function(){
  if(!active)return;
  const panel=$('workspace').querySelector('.panel');
  if(active==='전자결재'&&folder==='결재작성'){
-  const matches=docs.filter(d=>(catalogGroup!=='기본기안문'||d.includes('기안문'))&&d.includes(catalogQuery));
-  panel.innerHTML='<div class="paneltop"><strong>결재작성</strong></div><div class="catalog"><div><form class="filters" id="catalogSearch"><input name="q" aria-label="카테고리 또는 양식명" placeholder="카테고리/양식명 입력" value="'+safe(catalogQuery)+'"><button>검색</button></form>'+['전체양식','기본기안문'].map(n=>'<button class="category '+(catalogGroup===n?'active':'')+'"'+attrs('category',n)+'>'+n+'</button>').join('')+'</div><div><h3>자주 사용되는 양식</h3>'+(!catalogQuery?tile(docs[0],'draftform'):'')+'<h3>'+catalogGroup+'</h3>'+(matches.length?matches.map(d=>tile(d,'draftform')).join(''):empty)+'</div></div>';
+  const matches=docs.filter(d=>(catalogGroup==='전체양식'||(catalogGroup==='기본기안문'?d.includes('기안문'):(docGroups[catalogGroup]??[]).includes(d)))&&d.includes(catalogQuery));
+  panel.innerHTML='<div class="paneltop"><strong>결재작성</strong></div><div class="catalog"><div><form class="filters" id="catalogSearch"><input name="q" aria-label="카테고리 또는 양식명" placeholder="카테고리/양식명 입력" value="'+safe(catalogQuery)+'"><button>검색</button></form>'+['전체양식','기본기안문',...Object.keys(docGroups)].map(n=>'<button class="category'+(catalogGroup===n?'active':'')+'"'+attrs('category',n)+'>'+n+'</button>').join('')+'</div><div><h3>자주 사용되는 양식</h3>'+(!catalogQuery?tile(docs[0],'draftform'):'')+'<h3>'+catalogGroup+'</h3>'+(matches.length?matches.map(d=>tile(d,'draftform')).join(''):empty)+'</div></div>';
  }
  if(active==='임직원업무관리'&&folder==='근태신청서'){
   panel.innerHTML='<div class="paneltop"><strong>근태신청서</strong></div><div class="catalog"><div><h3>근태신청서 양식 선택</h3>'+tile('출장신청서','trip')+tile('기타 근태신청','attendance')+'</div><div><h3>근태신청현황</h3>'+calendar()+'</div></div>';
@@ -1139,6 +1140,175 @@ function sheetDuty(existing){
  state.sampleDocsSeeded=true;
  persist();render();
 }catch(error){console.warn('견본 결재문서를 넣지 못했습니다.',error)}})();
+</script><style>
+.fe-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0 14px}.fe-wide{grid-column:1/-1}.fe-req{color:#c2334a}.fe-meta{color:#5d6b7a;font-size:12px;margin:0 0 8px}
+.fe-line{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px;background:#f5f8fc;border:1px solid #dce3eb}.fe-line button,.fe-table button{border:1px solid #d4dce5;padding:5px 9px;background:#fafbfc}
+.fe-table{overflow-x:auto;margin-bottom:10px}.fe-table table{width:100%;min-width:620px;border-collapse:collapse;font-size:12px}.fe-table th,.fe-table td{border:1px solid #d6dce3;padding:3px}.fe-table th{background:#eef3f6;font-weight:normal}dialog .fe-table input{margin:0;padding:5px;min-width:60px}
+.fe-notice{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px}.fe-notice th,.fe-notice td{border:1px solid #d6dce3;padding:7px;text-align:left}.fe-notice th{width:28%;background:#f7f7f7}.official-sheet .fe-kv th{width:28%}
+</style><script>
+/* 서식 작성 환경: data/2_기관/4_서식의 서식을 전자결재 > 결재작성에서 작성·임시저장·상신할 수 있게 합니다.
+ * - 서식 원본은 data/에만 있습니다 (AGENTS.md 2장). 여기에는 화면 입력 칸만 두고 작성 안내 문구는 옮기지 않습니다.
+ *   예외: 개인정보 수집·이용 동의서의 "알리는 사항" 4줄은 동의 대상 내용이라 화면에 그대로 보여 줍니다.
+ * - 이미 있는 양식은 그대로 연결합니다: 기안문 → 일반기안문, 출장신청서 → 출장신청서(근태 화면), 물품매입 품의 → 물품매입(수리제조)품의 및 요구서
+ * - 칸 이름은 서식 파일의 항목 이름을 따릅니다. 서식 칸이 바뀌면 아래 정의(source에 적은 파일)도 함께 고칩니다.
+ */
+const formSchemas={};
+(()=>{try{
+ const T=(key,label,o={})=>({key,label,type:'text',...o});
+ const D=(key,label,o={})=>T(key,label,{...o,type:'date'});
+ const H=(key,label,o={})=>T(key,label,{...o,type:'time'});
+ const N=(key,label,o={})=>T(key,label,{...o,type:'number'});
+ const M=(key,label,o={})=>T(key,label,{...o,type:'money'});
+ const A=(key,label,o={})=>T(key,label,{...o,type:'textarea'});
+ const S=(key,label,options,o={})=>T(key,label,{...o,type:'select',options});
+ const R={required:true};
+ const add=(name,schema)=>{formSchemas[name]=schema;docs.push(name);(docGroups[schema.task]??=[]).push(name)};
+ docs.push('출장신청서');docGroups['출장·여비'].push('출장신청서');
+ add('출장복명서',{task:'출장·여비',source:'F03_출장복명서.md',titleHint:'(출장지) 출장 복명',sections:[
+  {title:'출장 개요',fields:[T('related','관련 문서',{placeholder:'출장신청서 문서번호 또는 제목',wide:true}),T('traveler','출장자',{...R,placeholder:'부서 / 직급 / 이름 (동행자 포함)',wide:true}),D('start','출장 시작일',R),D('end','출장 종료일',R),T('place','출장지',R),T('purpose','목적',{...R,wide:true})]},
+  {title:'수행 내용',fields:[A('work','수행 내용',{...R,placeholder:'일정별 또는 활동별로 적습니다'})]},
+  {title:'결과 및 조치사항',fields:[A('result','결과 및 조치사항',{...R,placeholder:'출장 결과, 후속 조치, 공유할 사항'})]},
+  {title:'여비 청구 내역',table:{key:'expenses',columns:['항목','산출 근거','금액(원)'],fixedRows:['운임','일비','숙박비','식비'],sum:[2]},
+   fields:[S('pooled','공용차량·부서 교통카드·차량 임차 사용',['예','아니오']),S('flight','항공 이용',['예','아니오'])]}
+ ],validate:v=>v.start&&v.end&&v.end<v.start?'출장 종료일은 시작일과 같거나 뒤여야 합니다.':''});
+ add('휴가(연차) 신청서',{task:'복무',source:'F04_휴가신청서.md',titleHint:'휴가 신청 (유형, 기간)',sections:[
+  {title:'신청 내용',fields:[T('person','대상자',{...R,placeholder:'부서 / 이름'}),S('kind','유형',['연차','반차','보건휴가','외출','조퇴','배우자 출산휴가','무급휴가','업무상 병가','업무 외 병가','공가','경조사휴가','포상휴가','가족돌봄휴가','대체휴일'],R),D('startDate','시작일',R),H('startTime','시작시간'),D('endDate','종료일',R),H('endTime','종료시간'),N('days','신청 일수',{step:'0.5'}),N('deduct','연차 차감',{step:'0.5'}),T('deputy','직무대행자',{placeholder:'부서 / 이름'}),A('reason','사유',{placeholder:'연차·외출·조퇴는 적지 않습니다'})]},
+  {title:'연차 현황',fields:[N('year','기준연도'),N('total','총 연차',{step:'0.5'}),N('used','사용',{step:'0.5'}),N('remain','잔여',{step:'0.5'}),N('pending','결재 대기',{step:'0.5'})]}
+ ],validate:v=>v.startDate&&v.endDate&&v.endDate<v.startDate?'종료일은 시작일과 같거나 뒤여야 합니다.':''});
+ add('지출결의서',{task:'구매·지출',source:'F06_지출결의서.md',titleHint:'(품명) 대금 지출',sections:[
+  {title:'종류와 회계연도',fields:[S('kind','지출결의서 종류',['(일반) 지출결의서 - 기안 포함','(일반) 지출결의서 - 기안 미포함','구입과 지출결의서','공사 지출결의서'],{...R,wide:true}),N('fiscalYear','회계연도',R)]},
+  {title:'세출과목',fields:[T('policy','정책'),T('unit','단위'),T('detail','세부'),T('item','편성·통계목'),T('note','부기')]},
+  {title:'날짜',fields:[D('proposed','발의'),D('ledger','원인행위부 기재'),D('contract','계약'),D('inspected','검수')]},
+  {title:'금액과 지급',fields:[M('amount','금액(원)',R),A('summary','적요',{...R,placeholder:'지급의 뜻, 품명·수량, 산출내역 등'}),T('account','거래은행 / 계좌번호',{placeholder:'카드 결제는 비워 둡니다'}),T('payee','채주 (상호·성명)',R)]}
+ ]});
+ add('물품검수조서',{task:'구매·지출',source:'F07_물품검수조서.md',titleHint:'(계약건명) 물품 검수',sections:[
+  {title:'검수 내용',fields:[T('contract','계약건명',{...R,wide:true}),T('supplier','납품자 상호'),T('supplierRep','납품자 성명'),M('amount','계약금액(원)',R),D('contractDate','계약체결 연월일'),D('dueDate','납품기한'),D('deliveredDate','납품 연월일',R),D('inspectDate','검사(수) 연월일',R),T('place','검사(수) 장소'),S('asset','물품관리시스템 등록',['비대상 (소모품)','대상 - 등록','대상 - 미등록'])]},
+  {title:'검사자·검수자',fields:[T('inspector','검사자 (담당자)',{placeholder:'소속 / 직위 / 성명'}),T('receiver','검수자 (부장)',{placeholder:'소속 / 직위 / 성명'})]},
+  {title:'물품검사(수) 내역',table:{key:'items',columns:['품명','규격','단위','단가(원)','계약상 수량','전회까지 납품수량','금회 검수량','사용부서'],rows:3}}
+ ],validate:v=>v.items.some(r=>r[0])?'':'물품검사(수) 내역에 품명을 한 줄 이상 적어 주세요.'});
+ add('관내업체 미사용 사유서',{task:'구매·지출',source:'F08_관내업체미사용사유서.md',titleHint:'(건명) 관내업체 미사용 사유',sections:[
+  {title:'사용 내용',fields:[T('subject','건명',{...R,wide:true}),M('budget','품의(도급)액(원)',R),T('spec','규격 / 수량 / 금액'),T('use','용도, 활용도'),T('company','업체명 / 소재지',R),T('companyInfo','대표자 / 업태 / 종목')]},
+  {title:'관내업체 미사용 사유 (해당하는 칸에 적기)',fields:[A('reason1','(1) 지역 생산품이 없는 경우'),A('reason2','(2) 품질·성능이 현저히 떨어지거나 가격이 현저히 비싼 경우'),A('reason3','(3) 그 밖의 부득이한 경우')]},
+  {title:'작성·확인',fields:[T('writer','작성자 (담당자)',R),T('checker','확인자 (부장)')]}
+ ],validate:v=>v.reason1||v.reason2||v.reason3?'':'관내업체 미사용 사유를 하나 이상 적어 주세요.'});
+ add('행사 계획서',{task:'행사 운영',source:'F09_계획서.md',titleHint:'(행사명) 운영계획',autoTitle:v=>v.eventName?v.eventName+' 운영계획':'',sections:[
+  {title:'행사 개요',fields:[T('eventName','행사명',{...R,wide:true}),T('related','관련 문서번호'),T('purpose','행사 목적',R),D('date','일시',R),H('start','시작'),H('end','종료'),T('place','장소',R),T('target','대상'),N('totalCount','연 인원'),N('realCount','실 인원')]},
+  {title:'주요내용',fields:[A('content','주요내용',R)]},
+  {title:'예산',fields:[M('budget','소요예산(원)'),T('budgetItem','예산과목',{placeholder:'정책 / 단위 / 세부 / 편성 / 통계목',wide:true})]},
+  {title:'안전·의전',fields:[A('safety','안전관리',{placeholder:'외부 활동·차량 이용 시 안전 대책'}),A('guests','내빈',{placeholder:'초청 내빈과 의전 담당자'})]}
+ ]});
+ add('행사 결과보고서',{task:'행사 운영',source:'F10_결과보고서.md',titleHint:'(행사명) 결과보고',autoTitle:v=>v.eventName?v.eventName+' 결과보고':'',sections:[
+  {title:'행사 개요',fields:[T('eventName','행사명',{...R,wide:true}),T('related','계획 문서번호'),D('date','일시',R),H('start','시작'),H('end','종료'),T('place','장소',R),N('planned','계획 인원'),N('actual','실제 인원',R)]},
+  {title:'결과',fields:[A('content','주요내용',R),M('spent','집행예산(원)'),N('ratio','계획 대비(%)',{step:'0.1'}),A('outcome','성과 및 개선사항',R)]}
+ ]});
+ add('강의확인서',{task:'전문가 활용비',source:'F17_강의확인서.md',visibility:'비공개',titleHint:'(사업명) 강의확인서',sections:[
+  {title:'강의',fields:[T('project','사업명',{...R,wide:true}),D('date','강의일',R),H('start','시작'),H('end','종료'),N('hours','강의 시간',{step:'0.5'}),T('place','강의장소'),A('content','강의내용')]},
+  {title:'강사 (개인정보가 들어가는 비공개 문서)',fields:[T('lecturer','강사 성명',{...R,placeholder:'○○○'}),T('rrn','주민등록번호',{placeholder:'시연용: 실제 번호를 넣지 마세요'}),T('address','주소'),T('phone','연락처'),T('account','입금 계좌',{placeholder:'은행 / 계좌번호 / 예금주',wide:true}),M('total','총금액(원)',R),A('calc','산출 내역',{...R,placeholder:'최초 1시간과 초과 시간을 나누어 적습니다'})]}
+ ]});
+ add('강사비 지급내역서',{task:'전문가 활용비',source:'F18_강사비지급내역서.md',visibility:'비공개',titleHint:'(사업명) 강사비 지급내역',sections:[
+  {title:'사업',fields:[T('project','사업명',{...R,wide:true}),T('when','강의일시·장소',{wide:true})]},
+  {title:'지급 내역',table:{key:'payments',columns:['성명','강사 등급','강의시간','산출 (최초 + 초과)','지급액(세전)','소득 구분','소득세','지방소득세','실지급액','은행','계좌번호'],rows:2,sum:[4,6,7,8]}},
+  {title:'이체명세서',table:{key:'transfers',columns:['예금주','계좌번호','금액(원)','은행'],rows:2,sum:[2]}}
+ ],validate:v=>v.payments.some(r=>r[0]&&r[4])?'':'지급 내역에 성명과 지급액을 한 줄 이상 적어 주세요.'});
+ add('강사일지',{task:'전문가 활용비',source:'F19_강사일지.md',titleHint:'(  )월 강사일지',autoTitle:v=>v.month?v.month+'월 강사일지'+(v.program?' ('+v.program+')':''):'',sections:[
+  {title:'기본 정보',fields:[N('month','월',{...R,min:'1',max:'12'}),T('lecturer','강사 성명',{placeholder:'○○○'}),T('program','프로그램명',R),T('lectureTime','강의 시간')]},
+  {title:'강의 기록',table:{key:'sessions',columns:['강의일','강의 내용','특이사항','총인원','출석','결석','강사 확인'],rows:4}}
+ ],validate:v=>v.sessions.some(r=>r[0]||r[1])?'':'강의 기록을 한 줄 이상 적어 주세요.'});
+ add('개인정보 수집·이용 동의서',{task:'전문가 활용비',source:'F20_개인정보수집이용동의서.md',visibility:'비공개',titleHint:'강사 개인정보 수집·이용 동의서',sections:[
+  {title:'알리는 사항',notice:[['수집·이용 목적','강사 섭외·관리, 강사비 지급, 원천징수 신고, 성범죄경력·아동학대 범죄전력 조회'],['수집 항목','성명, 주민등록번호, 주소, 연락처, 계좌번호, 학력·경력 (이력서)'],['보유·이용 기간','관계 법령(소득세법 등)과 재단 기록물 보존기간에 따른 기간'],['동의를 거부할 권리','동의를 거부할 수 있습니다. 다만 거부하면 강사비 지급과 원천징수 신고를 할 수 없어 강의 위촉이 어려울 수 있습니다.']]},
+  {title:'동의',fields:[S('agree','개인정보 수집·이용',['동의합니다','동의하지 않습니다'],R),D('date','작성일',R),T('name','성명',{...R,placeholder:'○○○'})]}
+ ]});
+
+ const lineLabel=p=>[p.department,p.rank,p.name].filter(Boolean).join(' ');
+ const num=v=>Number(String(v??'').replace(/[^\d.-]/g,''))||0;
+ const show=(f,v)=>f.type==='money'&&v!==''&&v!=null?num(v).toLocaleString('ko-KR')+'원':String(v??'');
+ const fieldsOf=s=>s.fields??[];
+ const control=(f,v)=>{
+  const name='f_'+f.key,ph=f.placeholder?' placeholder="'+safe(f.placeholder)+'"':'';
+  if(f.type==='textarea')return '<textarea name="'+name+'"'+ph+'>'+safe(v)+'</textarea>';
+  if(f.type==='select')return '<select name="'+name+'"><option value="">선택</option>'+f.options.map(o=>'<option'+(o===v?' selected':'')+'>'+safe(o)+'</option>').join('')+'</select>';
+  return '<input name="'+name+'" type="'+(f.type==='money'?'number':f.type)+'" value="'+safe(v)+'"'+ph+(f.type==='money'?' min="0" step="1"':'')+(f.step?' step="'+f.step+'"':'')+(f.min?' min="'+f.min+'"':'')+(f.max?' max="'+f.max+'"':'')+'>';
+ };
+ const fieldHtml=(f,values)=>'<label class="'+(f.wide||f.type==='textarea'?'fe-wide':'')+'">'+safe(f.label)+(f.required?' <span class="fe-req" aria-hidden="true">*</span>':'')+control(f,values[f.key]??'')+'</label>';
+ const rowHtml=(t,r=[])=>'<tr>'+t.columns.map((c,ci)=>'<td><input aria-label="'+safe(c)+'" value="'+safe(r[ci]??'')+'"'+(t.fixedRows&&ci===0?' readonly':'')+'></td>').join('')+'</tr>';
+ const sumOf=(rows,ci)=>rows.reduce((n,r)=>n+num(r[ci]),0);
+ const tableHtml=(t,values)=>{
+  const saved=values[t.key];
+  const rows=t.fixedRows?t.fixedRows.map((label,i)=>[label,...(saved?.[i]?.slice(1)??[])]):(saved?.length?saved:Array.from({length:t.rows??3},()=>[]));
+  return '<div class="fe-table" data-table="'+t.key+'"><table><thead><tr>'+t.columns.map(c=>'<th>'+safe(c)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>rowHtml(t,r)).join('')+'</tbody>'
+   +(t.sum?'<tfoot><tr>'+t.columns.map((c,ci)=>'<td>'+(ci===0?'계':t.sum.includes(ci)?'<output data-sum="'+ci+'">0</output>':'')+'</td>').join('')+'</tr></tfoot>':'')+'</table>'
+   +(t.fixedRows?'':'<button type="button" data-fe-add="'+t.key+'">행 추가</button> <button type="button" data-fe-remove="'+t.key+'">마지막 행 삭제</button>')+'</div>';
+ };
+ const noticeHtml=rows=>'<table class="fe-notice"><tbody>'+rows.map(([k,v])=>'<tr><th>'+safe(k)+'</th><td>'+safe(v)+'</td></tr>').join('')+'</tbody></table>';
+ const sectionHtml=(s,values)=>'<h3>'+safe(s.title)+'</h3>'+(s.notice?noticeHtml(s.notice):'')+(s.table?tableHtml(s.table,values):'')+(s.fields?'<div class="fe-grid">'+s.fields.map(f=>fieldHtml(f,values)).join('')+'</div>':'');
+ const filledRows=(t,rows)=>(rows??[]).filter(r=>r.slice(t.fixedRows?1:0).some(Boolean));
+ const staticTable=(t,rows)=>{
+  const filled=filledRows(t,rows);
+  if(!filled.length)return '<p>내용 없음</p>';
+  return '<table><thead><tr>'+t.columns.map(c=>'<th>'+safe(c)+'</th>').join('')+'</tr></thead><tbody>'+filled.map(r=>'<tr>'+t.columns.map((c,ci)=>'<td>'+safe(r[ci]??'')+'</td>').join('')+'</tr>').join('')
+   +(t.sum?'<tr>'+t.columns.map((c,ci)=>'<td>'+(ci===0?'계':t.sum.includes(ci)?sumOf(filled,ci).toLocaleString('ko-KR'):'')+'</td>').join('')+'</tr>':'')+'</tbody></table>';
+ };
+ const kv=rows=>'<table class="fe-kv"><tbody>'+rows.map(([k,v])=>'<tr><th>'+safe(k)+'</th><td>'+safe(v).replace(/\n/g,'<br>')+'</td></tr>').join('')+'</tbody></table>';
+ const sheetOf=(template,schema,title,values,lines)=>sheetSanitize('<section class="official-sheet"><h2>'+safe(template)+'</h2>'
+  +kv([['제　목',title],['결재라인',lines.map(p=>p.role+' '+lineLabel(p)).join(' → ')||'지정 안 됨'],['공개여부',schema.visibility??'공개']])
+  +schema.sections.map(s=>'<h3>'+safe(s.title)+'</h3>'+(s.notice?kv(s.notice):'')+(s.table?staticTable(s.table,values[s.table.key]):'')+(s.fields?kv(s.fields.map(f=>[f.label,show(f,values[f.key])])):'')).join('')
+  +'<p class="sheet-date">'+dateKey(new Date())+'</p></section>');
+ const plainOf=(schema,values)=>schema.sections.flatMap(s=>[...fieldsOf(s).filter(f=>values[f.key]).map(f=>f.label+': '+show(f,values[f.key])),...(s.table?filledRows(s.table,values[s.table.key]).map(r=>r.filter(Boolean).join(' / ')):[])]).join('\n');
+
+ const formEditor=(template,existing)=>{
+  const schema=formSchemas[template],data=existing?.details??{},saved=data.values??{};
+  let lines=structuredClone(data.approvalLine??[]);
+  const startTitle=existing?.title&&existing.title!=='제목 없음'?existing.title:'';
+  showWide('<form id="formEditor" novalidate>'+dialogTop(template)+'<div class="draftbody"><p class="fe-meta">'+safe(schema.task)+' 서식 · 원본 data/2_기관/4_서식/'+safe(schema.source)+'</p>'
+   +'<label>제목 <span class="fe-req" aria-hidden="true">*</span><input name="f__title" value="'+safe(startTitle)+'" placeholder="'+safe(schema.titleHint??'')+'"></label>'
+   +'<h3>결재라인</h3><div class="fe-line"><span id="feLine"></span><button type="button" id="feLineEdit">결재라인지정</button></div>'
+   +schema.sections.map(s=>sectionHtml(s,saved)).join('')+'<p class="official-error" id="feError" role="alert"></p></div></form>');
+  const form=$('formEditor');
+  const tableOf=key=>schema.sections.find(s=>s.table?.key===key).table;
+  const drawLine=()=>{$('feLine').textContent=lines.map(p=>p.role+' '+lineLabel(p)).join(' → ')||'결재라인을 지정해 주세요.'};
+  const sums=()=>form.querySelectorAll('.fe-table').forEach(box=>{
+   const rows=[...box.querySelectorAll('tbody tr')].map(tr=>[...tr.querySelectorAll('input')].map(i=>i.value));
+   box.querySelectorAll('[data-sum]').forEach(o=>o.textContent=sumOf(rows,Number(o.dataset.sum)).toLocaleString('ko-KR'));
+  });
+  const collect=()=>{
+   const out={};
+   for(const s of schema.sections){
+    for(const f of fieldsOf(s))out[f.key]=form.elements['f_'+f.key].value.trim();
+    if(s.table)out[s.table.key]=[...form.querySelectorAll('[data-table="'+s.table.key+'"] tbody tr')].map(tr=>[...tr.querySelectorAll('input')].map(i=>i.value.trim()));
+   }
+   return out;
+  };
+  drawLine();sums();
+  $('feLineEdit').onclick=()=>editOfficialLine(lines,next=>{lines=next;drawLine()});
+  form.addEventListener('input',sums);
+  form.addEventListener('click',e=>{
+   const plus=e.target.closest('[data-fe-add]'),minus=e.target.closest('[data-fe-remove]');
+   if(plus)form.querySelector('[data-table="'+plus.dataset.feAdd+'"] tbody').insertAdjacentHTML('beforeend',rowHtml(tableOf(plus.dataset.feAdd)));
+   if(minus){const body=form.querySelector('[data-table="'+minus.dataset.feRemove+'"] tbody');if(body.rows.length>1)body.lastElementChild.remove();sums()}
+  });
+  form.onsubmit=e=>{
+   e.preventDefault();
+   const draft=e.submitter?.value==='draft',values=collect();
+   const title=form.elements.f__title.value.trim()||schema.autoTitle?.(values)||'';
+   if(!draft){
+    const missing=[...(title?[]:['제목']),...schema.sections.flatMap(fieldsOf).filter(f=>f.required&&!values[f.key]).map(f=>f.label)];
+    if(!lines.some(p=>p.role==='결재'))missing.push('결재라인 (결재 1명 이상)');
+    const problem=missing.length?'다음 항목을 입력해 주세요: '+missing.join(', '):schema.validate?.(values)||'';
+    if(problem){$('feError').textContent=problem;return}
+    if(!confirm('작성한 문서를 상신하시겠습니까?'))return;
+   }
+   saveDoc({type:'전자결재',kind:'생산문서',template,title:title||'제목 없음',body:plainOf(schema,values),party:lines.filter(p=>p.role==='결재').map(lineLabel).join(' → '),date:dateKey(new Date()),
+    folder:draft?'임시보관문서':'상신문서',status:draft?'임시저장':'결재중',
+    details:{form:template,source:schema.source,values,approvalLine:lines,visibility:schema.visibility??'공개',sheetHTML:sheetOf(template,schema,title||'제목 없음',values,lines)}},existing);
+  };
+ };
+ const draftEditorBeforeForms=draftEditor;
+ draftEditor=function(template,existing){
+  if(formSchemas[template]){formEditor(template,existing);return}
+  if(template==='출장신청서'&&!existing){tripEditor();return}
+  draftEditorBeforeForms(template,existing);
+ };
+}catch(error){console.warn('서식 작성 화면을 준비하지 못했습니다.',error)}})();
 </script></html>
 
 
