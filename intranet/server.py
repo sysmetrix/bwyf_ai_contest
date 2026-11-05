@@ -792,7 +792,24 @@ def health() -> dict:
 
 
 if __name__ == "__main__":
-    print(f"\n  가상 인트라넷  http://127.0.0.1:{PORT}")
+    import argparse
+    ap = argparse.ArgumentParser(description="가상 인트라넷")
+    ap.add_argument("--port", type=int, default=PORT)
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="같은 사무실 PC에서도 열어 보게 하려면 0.0.0.0")
+    args = ap.parse_args()
+
+    print(f"\n  가상 인트라넷  http://127.0.0.1:{args.port}")
+    if args.host == "0.0.0.0":
+        import socket
+        try:
+            sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sk.connect(("8.8.8.8", 80))
+            print(f"  같은 망에서는  http://{sk.getsockname()[0]}:{args.port}")
+            sk.close()
+        except Exception:
+            pass
+        print("  ※ 같은 망의 다른 PC에서도 열립니다. 시연이 끝나면 꺼 주세요.")
     print(f"  자료실에 올려 둔 규정류 {len(REGULATIONS)}건, 서식 {len(FORMS)}건")
     print(f"  전자결재함에 들어온 기안 {len(SERVER.get('documents', {}))}건\n")
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")

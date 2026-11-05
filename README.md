@@ -55,6 +55,12 @@ cd intranet && pip install -r requirements.txt && python server.py   # 창 1
 cd app      && pip install -r requirements.txt && python run.py      # 창 2
 ```
 
+### 다른 PC에서도 보여 주려면
+
+기본은 내 PC에서만 열립니다. 같은 사무실 망의 다른 PC에서도 열어 보게 하려면
+`같은망에서 보여주기.bat` 을 대신 실행하세요. 창에 `http://192.168.0.x:8100` 처럼
+주소가 뜹니다. 그 주소를 알려 주면 됩니다. 시연이 끝나면 창을 닫아 주세요.
+
 ### 둘러보는 순서
 
 1. <http://127.0.0.1:8100> 에서 인트라넷에 로그인합니다.
