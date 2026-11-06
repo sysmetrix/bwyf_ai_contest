@@ -1,0 +1,64 @@
+# AI 모델 연결 설정 (화면에서 저장됨)
+# provider: none 이면 AI 없이 규칙 기반으로 동작합니다.
+# API 키는 이 파일에 적지 말고 환경변수 이름(api_key_env)만 적습니다.
+providers:
+  none:
+    type: none
+  ollama:
+    type: local
+    base_url: http://127.0.0.1:11434/v1
+  colibri:
+    type: local
+    base_url: http://127.0.0.1:8010/v1
+  vllm:
+    type: local
+    base_url: http://127.0.0.1:8001/v1
+  llamacpp:
+    type: local
+    base_url: http://127.0.0.1:8080/v1
+roles:
+  classify:
+    provider: ollama
+    model: gemma3:4b
+  answer:
+    provider: ollama
+    model: gemma3:4b
+  draft:
+    provider: ollama
+    model: gemma3:4b
+timeout_seconds: 300
+mail:
+  provider: none
+  providers:
+    none:
+      type: none
+    smtp:
+      type: smtp
+      host: smtp.example.invalid
+      port: 587
+      user_env: MAIL_USER
+      pass_env: MAIL_PASS
+      from_addr: seobi@example.invalid
+approval:
+  provider: mock
+  providers:
+    mock:
+      type: mock
+    amaranth:
+      type: amaranth_10
+      base_url: https://gw.example-agency.kr/api/v1
+      api_key_env: AMARANTH_API_KEY
+      company_code: DEMO_ORG
+      form_id: FORM_EXPENSE_01
+    intranet:
+      type: intranet_api
+      base_url: http://127.0.0.1:8100
+      api_key_env: INTRANET_API_KEY
+intranet:
+  enabled: false   # 약속 v0.2: 인트라넷은 서무비서가 /intranet/ 으로 함께 냅니다
+                                    # 바깥 그룹웨어에 붙일 때만 true
+  base_url: http://127.0.0.1:8100
+  api_key_env: INTRANET_API_KEY
+  org_id: bwyf
+  use_regulations: true
+  use_forms: true

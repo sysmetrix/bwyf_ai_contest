@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+outputs/*
+!outputs/.gitkeep
+data/orgs/*/history.jsonl
+data/orgs/*/profile_history/
+data/orgs/*/done.json
+data/orgs_deleted/
+*.pdf.tmp
+.cache/
+data_backups/
+.install_id
+data/orgs/*/packages/
+data/orgs/*/intranet_sync.json
+# 이 PC에서만 배운 개인 자료. 절대 올리지 않습니다.
+data/orgs/*/개인학습.json

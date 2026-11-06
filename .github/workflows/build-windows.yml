@@ -1,0 +1,32 @@
+name: 윈도우 설치판 만들기
+
+# 태그(v1.2.0 같은)를 올리거나, 깃허브 화면에서 직접 눌러 실행합니다.
+# 결과물에는 파이썬이 들어 있어 받는 PC에 파이썬을 따로 깔 필요가 없습니다.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 빌드에 필요한 것 설치
+        working-directory: app
+        run: pip install -r requirements.txt
+
+      - name: 설치판 만들기
+        working-directory: app
+        run: python tools/build_windows.py
+
+      - name: 결과물 올리기
+        uses: actions/upload-artifact@v4
+        with:
+          name: 서비_Windows설치판
+          path: 서비_Windows설치판_*.zip
+          if-no-files-found: error
