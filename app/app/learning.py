@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +91,10 @@ def record_use(org_id: str, user_id: str | None, task_id: str | None,
         key = " → ".join(str(x) for x in approval_line)
         if _ok(key):
             b["line"][key] = int(b["line"].get(key, 0)) + 1
+    # '지난번처럼' 을 위해 마지막 건을 통째로 남겨 둡니다.
+    b["last"] = {"at": datetime.now().isoformat(timespec="seconds"),
+                 "slots": {k: v for k, v in (slots or {}).items() if k in FIELDS and _ok(v)},
+                 "approval_line": list(approval_line or [])}
     _save(org_id, data)
 
 
@@ -158,19 +162,122 @@ def _cast(field: str, value: str) -> Any:
     return value
 
 
-def apply_defaults(org_id: str, user_id: str | None, task_id: str | None,
-                   slots: dict) -> tuple[dict, list[str]]:
-    """사람이 말하지 않은 칸만 배운 값으로 채웁니다. 말한 값은 절대 덮지 않습니다."""
-    learned = suggest(org_id, user_id, task_id)
-    filled = []
-    out = dict(slots or {})
-    for k, v in learned.items():
-        if k == LINE_KEY:
+# ---------- "지난번처럼" ----------
+# 배운 값을 서비가 알아서 끼워 넣지는 않습니다. 어디로 가는지는 사람에게 묻습니다.
+# 사람이 "어제 갔던 곳으로 다시 올려 줘" 처럼 **직접 가리킬 때만** 꺼내 씁니다.
+
+_WHEN = r"(지난번|저번|전번|어제|지난주|지난달|그때|예전|기존)"
+_PTL  = r"[에의을를이가은는도만]*\s*"          # 조사가 끼어도 걸리게
+_WHAT = r"(이?랑|처럼|같[은이]|갔던|했던|썼던|올렸던|보냈던|그대로|거기|그곳|출장|구매|신청|기안)"
+
+_REPEAT = re.compile(
+    _WHEN + _PTL + _WHAT
+    + r"|같은\s*(곳|데|장소|품목|내용|걸로|것으로)"
+    + r"|(똑같이|그대로)\s*(올려|해\s*줘|만들어)"
+    + r"|다시\s*(한\s*번\s*)?(올려|작성|해\s*줘)"
+)
+
+
+def _norm(t: str) -> str:
+    return re.sub(r"\s+", "", (t or "")).strip()
+
+
+def _phrases(org_id: str, user_id: str | None) -> dict:
+    data = _load(org_id)
+    u = (data.get("users") or {}).get(user_id or "_") or {}
+    return (u.get("_말투") or {}).get("지난번", {})
+
+
+def remember_phrase(org_id: str, user_id: str | None, message: str) -> None:
+    """'지난 건을 가리킨 말'로 확인된 표현을 기억합니다.
+
+    사람마다 말투가 다릅니다. 한 번 확인되면 다음부터는 규칙처럼 즉시 알아듣습니다.
+    쓸수록 그 사람 말투에 맞춰집니다.
+    """
+    key = _norm(message)[:40]
+    if not key:
+        return
+    data = _load(org_id)
+    u = data.setdefault("users", {}).setdefault(user_id or "_", {})
+    box = u.setdefault("_말투", {}).setdefault("지난번", {})
+    box[key] = int(box.get(key, 0)) + 1
+    _save(org_id, data)
+
+
+def wants_repeat(message: str, org_id: str | None = None,
+                 user_id: str | None = None, *, ai: bool = False) -> bool:
+    """사람이 지난 건을 가리키고 있는지. 세 겹으로 봅니다.
+
+      1. 흔한 표현은 규칙으로 즉시 (0초)
+      2. 그 사람이 전에 쓴 말투면 즉시 (쓸수록 넓어집니다)
+      3. 그래도 모르겠고 ai=True 면 이 기기의 모델에게 한 번 묻습니다
+    """
+    t = message or ""
+    if _REPEAT.search(t):
+        return True
+
+    if org_id is not None:
+        key = _norm(t)
+        for learned in _phrases(org_id, user_id):
+            # 전에 쓴 말과 같거나, 그 말이 이번 말 안에 들어 있으면 같은 뜻으로 봅니다.
+            if learned and (learned == key or learned in key or key in learned):
+                return True
+
+    if not ai:
+        return False
+    return _ask_model(t)
+
+
+_ASK = ("다음 말이 '전에 했던 것과 같게 해 달라'는 뜻인지만 판단하세요. "
+        "예 또는 아니오 한 글자만 답하세요.\n말: ")
+
+
+def _ask_model(message: str) -> bool:
+    """이 기기의 모델에게 짧게 묻습니다. 프롬프트가 짧아 빠릅니다."""
+    try:
+        from . import llm
+        if not llm.role_enabled("classify"):
+            return False
+        res = llm.chat("classify",
+                       [{"role": "user", "content": _ASK + message[:120]}],
+                       max_tokens=4, timeout=12)
+        return bool(res.ok and res.text and res.text.strip().startswith(("예", "네", "y", "Y")))
+    except Exception:
+        return False
+
+
+def last_used(org_id: str, user_id: str | None, task_id: str | None) -> dict | None:
+    """마지막으로 실제 올린 건의 값. '지난번처럼' 일 때만 씁니다."""
+    b = _bucket(_load(org_id), user_id or "", task_id or "")
+    return (b.get("last") or {}) or None
+
+
+def repeat_slots(org_id: str, user_id: str | None, task_id: str | None,
+                 slots: dict) -> tuple[dict, list[str], dict | None]:
+    """지난 건의 값으로 빈 칸을 채웁니다. 날짜는 오늘 기준으로 다시 잡습니다.
+
+    사람이 이번에 말한 값은 절대 덮지 않습니다.
+    """
+    last = last_used(org_id, user_id, task_id)
+    out, filled = dict(slots or {}), []
+
+    # "어제 갔던 곳" 처럼 지난 때를 가리키는 말 때문에 날짜가 과거로 잡혔으면
+    # 그건 이번 일정이 아닙니다. 비워서 사람이 말하거나 묻게 합니다.
+    today = date.today().isoformat()
+    if str(out.get("start_date") or "") < today and out.get("start_date"):
+        for k in ("start_date", "end_date", "days"):
+            out.pop(k, None)
+
+    if not last:
+        return out, [], None
+    for k, v in (last.get("slots") or {}).items():
+        # 날짜는 지난 건 것을 그대로 쓰면 안 됩니다. 이번에 말한 날짜를 씁니다.
+        if k in ("start_date", "end_date", "days"):
             continue
-        if out.get(k) in (None, "", []):
-            out[k] = v
+        if k in FIELDS and out.get(k) in (None, "", []) and _ok(v):
+            out[k] = _cast(k, str(v))
             filled.append(k)
-    return out, filled
+    return out, filled, last
 
 
 # ---------- 보여 주기 · 지우기 ----------

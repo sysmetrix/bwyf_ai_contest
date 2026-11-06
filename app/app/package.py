@@ -106,12 +106,18 @@ def build(org_id: str, message: str, *, user_id: str | None = None,
 
     profile = store.load_profile(org_id)
 
-    # 이 PC에서 배운 값으로 빈 칸을 미리 채웁니다(사람이 말한 값은 덮지 않습니다).
+    # 어디로 가는지는 서비가 정하지 않습니다. 사람에게 묻습니다.
+    # 다만 사람이 "어제 갔던 곳으로 다시 올려 줘" 처럼 **지난 건을 가리키면**
+    # 그때만 지난 값을 꺼내 씁니다. 날짜는 이번에 말한 날짜를 씁니다.
     task_id = (r.get("task") or {}).get("id")
     slots_before = (r.get("understanding") or {}).get("slots") or {}
-    slots_after, prefilled = learning.apply_defaults(org_id, user_id, task_id, slots_before)
-    if prefilled:
-        r.setdefault("understanding", {})["slots"] = slots_after
+    prefilled, repeated = [], None
+    if learning.wants_repeat(message, org_id, user_id, ai=True):
+        slots_after, prefilled, repeated = learning.repeat_slots(
+            org_id, user_id, task_id, slots_before)
+        if prefilled:
+            r.setdefault("understanding", {})["slots"] = slots_after
+            learning.remember_phrase(org_id, user_id, message)   # 이 말투를 기억
 
     pkg_id = f"{date.today():%Y%m%d}-{uuid.uuid4().hex[:6]}"
     d = _dir(org_id, pkg_id)
@@ -163,7 +169,9 @@ def build(org_id: str, message: str, *, user_id: str | None = None,
                      for e in (r.get("evidence") or [])],
         "warnings": r.get("warnings") or [],
         "attachments": attachments,
-        "prefilled": prefilled,          # 배운 값으로 채운 칸(화면에서 표시)
+        # 지난 건에서 가져온 칸. 화면에서 "지난번 값입니다" 로 표시합니다.
+        "prefilled": prefilled,
+        "repeated_from": (repeated or {}).get("at"),
         "history": [{"at": datetime.now().isoformat(timespec="seconds"), "state": "draft",
                      "note": "서비가 규정에서 뽑아 만들었습니다"
                              + (f" (배운 값으로 {', '.join(prefilled)} 채움)" if prefilled else "")}],

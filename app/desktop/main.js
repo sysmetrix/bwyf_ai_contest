@@ -11,7 +11,8 @@ const BASE = `http://127.0.0.1:${PORT}`;
 
 // 두 단계뿐입니다: 접힘(캐릭터만) / 큰 화면.
 // 중간 크기 패널은 글을 읽기에 좁고 한 번 더 눌러야 해서 없앴습니다.
-const SIZE = { idle: { w: 152, h: 168 }, large: { w: 1040, h: 760 } };
+const SIZE = { idle: { w: 152, h: 168 }, say: { w: 330, h: 214 },
+               large: { w: 1040, h: 760 } };
 SIZE.open = SIZE.large;        // 예전 호출이 남아 있어도 큰 화면으로 갑니다
 const MARGIN = 28;
 
@@ -231,7 +232,7 @@ function stopWalk() {
   if (win && !win.isDestroyed()) win.webContents.send("seobi:walk", { walking: false, dir: 0 });
 }
 
-function walkTo(tx, ty, pxPerSec = 46) {
+function walkTo(tx, ty, pxPerSec = 46, done) {
   if (!win || win.isDestroyed()) return;
   stopWalk();
   const step = 33;                                   // 30fps 정도면 충분히 부드럽습니다
@@ -245,7 +246,10 @@ function walkTo(tx, ty, pxPerSec = 46) {
     const dx = tx - c.x, dy = ty - c.y;
     const dist = Math.hypot(dx, dy);
     const move = (pxPerSec * step) / 1000;
-    if (dist <= move) { win.setPosition(Math.round(tx), Math.round(ty)); return stopWalk(); }
+    if (dist <= move) {
+      win.setPosition(Math.round(tx), Math.round(ty));
+      stopWalk(); done && done(); return;
+    }
     // 높이는 바닥선으로 천천히만 맞춥니다(사람이 위로 끌어 둔 경우 걸어 내려옵니다)
     const ny = Math.abs(dy) < 1 ? c.y : c.y + Math.sign(dy) * Math.min(Math.abs(dy), move * 0.45);
     win.setPosition(Math.round(c.x + Math.sign(dx) * Math.min(Math.abs(dx), move)), Math.round(ny));
@@ -288,6 +292,65 @@ ipcMain.on("seobi:roam", (_e, on) => {
 // ---------- 트레이 ----------
 ipcMain.on("seobi:intranet", (_e, docNo) => openIntranet(docNo));
 
+// ---------- 마우스 쪽으로 걸어오기 ----------
+// 사람이 부르면(트레이 '이리 와') 또는 알릴 일이 있을 때, 지금 마우스가 있는
+// 자리 가까이로 걸어갑니다. 커서를 덮지 않도록 조금 옆·아래에 섭니다.
+function walkToCursor(done) {
+  if (!win || win.isDestroyed() || state !== "idle") { done && done(); return; }
+  try {
+    const pt = screen.getCursorScreenPoint();
+    const area = screen.getPrimaryDisplay().workArea;
+    const b = win.getBounds();
+    // 커서 왼쪽·아래에 서게 합니다. 화면 왼쪽 끝이면 오른쪽에 섭니다.
+    const wantRight = pt.x - area.x < b.width + 60;
+    const tx = clamp(wantRight ? pt.x + 40 : pt.x - b.width - 40,
+                     area.x + 8, area.x + area.width - b.width - 8);
+    const ty = clamp(pt.y - Math.round(b.height * 0.55),
+                     area.y + 8, area.y + area.height - b.height - 8);
+    walkTo(tx, ty, 150, done);          // 부를 때는 빠르게 옵니다
+  } catch { done && done(); }
+}
+
+
+// ---------- 말풍선 ----------
+// 역할에 따라 알릴 일이 생기면 캐릭터가 직접 말합니다.
+let sayTimer = null;
+function say(text, ms = 7000, { come = true } = {}) {
+  if (!win || win.isDestroyed() || !text) return;
+  const show = () => {
+    if (state !== "idle") return;                 // 큰 창일 때는 화면 안에서 봅니다
+    const b = win.getBounds();
+    const cx = b.x + b.width / 2, bottom = b.y + b.height;
+    const { w, h } = SIZE.say;
+    const area = screen.getPrimaryDisplay().workArea;
+    win.setBounds({
+      x: Math.round(clamp(cx - w / 2, area.x + 4, area.x + area.width - w - 4)),
+      y: Math.round(clamp(bottom - h, area.y + 4, area.y + area.height - h - 4)),
+      width: w, height: h,
+    }, false);
+    win.webContents.send("seobi:say", { text });
+    clearTimeout(sayTimer);
+    sayTimer = setTimeout(hush, ms);
+  };
+  come ? walkToCursor(show) : show();
+}
+
+function hush() {
+  clearTimeout(sayTimer);
+  if (!win || win.isDestroyed() || state !== "idle") return;
+  win.webContents.send("seobi:say", { text: "" });
+  const b = win.getBounds();
+  const cx = b.x + b.width / 2, bottom = b.y + b.height;
+  const { w, h } = SIZE.idle;
+  win.setBounds({ x: Math.round(cx - w / 2), y: Math.round(bottom - h),
+                  width: w, height: h }, false);
+}
+
+ipcMain.on("seobi:say", (_e, text) => say(String(text || ""), 7000));
+ipcMain.on("seobi:hush", () => hush());
+ipcMain.on("seobi:come", () => walkToCursor());
+
+
 function createTray() {
   // 템플릿 이미지로 두면 알파만 써서 검은 덩어리로 보일 수 있어, 컬러 아이콘 그대로 씁니다.
   const img = nativeImage.createFromPath(path.join(ROOT, "web", "seobi-512.png")).resize({ width: 18, height: 18 });
@@ -300,6 +363,7 @@ function createTray() {
     { type: "separator" },
     { label: "혼자 돌아다니기", type: "checkbox", checked: roamOn,
       click: (item) => { roamOn = item.checked; if (!roamOn) stopWalk(); } },
+    { label: "이리 와", click: () => walkToCursor() },
     { label: "지금 산책", click: () => roamOnce() },
     { type: "separator" },
     { label: "인트라넷 열기", click: () => openIntranet() },
