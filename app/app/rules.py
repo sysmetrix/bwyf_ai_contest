@@ -17,7 +17,7 @@ from .docs import SUPPORTED, read_text
 from .store import COMMON, ROOT, org_dir
 
 LAYER_LABEL = {"common": "공통 규정", "org": "기관 규정", "dept": "부서 보충",
-               "intranet": "인트라넷 규정", "form": "인트라넷 서식"}
+               "intranet": "재단 규정", "form": "재단 서식"}
 LAYER_WEIGHT = {"common": 1.0, "org": 1.15, "dept": 1.25,
                 "intranet": 1.2, "form": 1.1}  # 가까운 층을 우선
 
@@ -228,18 +228,32 @@ def get_index(org_id: str) -> RuleIndex:
             rel = str(f.relative_to(ROOT))
             articles.extend(split_articles(_cached_text(f), layer, rel, f.stem))
 
-        # 인트라넷 규정 추가 (설정되어 있으면)
+        # 레포 루트의 data/ (지은이 정리한 재단 규정·서식)를 함께 찾아봅니다.
+        # 약속 v0.2 1-4: 서무비서는 이 폴더를 재단 규정으로 씁니다.
+        try:
+            from . import intranet_ui
+            for d in intranet_ui.REGULATIONS:
+                articles.extend(split_articles(d["_body"], "intranet",
+                                               f"data://{d['id']}", d["title"]))
+            # 서식에도 "언제 쓰는지·무엇을 적는지"가 들어 있어 함께 찾아봅니다.
+            for d in intranet_ui.FORMS:
+                articles.extend(split_articles(d["_body"], "form",
+                                               f"form://{d['id']}", f"{d['id']} {d['title']}"))
+        except Exception as e:
+            print(f"⚠️  재단 규정(data/) 읽기 실패 ({org_id}): {e}")
+
+        # 바깥 그룹웨어에 붙여 둔 경우에는 거기 규정도 더합니다.
         try:
             from . import intranet
-            for reg in intranet.fetch_intranet_regulations(org_id):
-                articles.extend(split_articles(reg["content"], "intranet",
-                                               f"intranet://{reg['id']}", reg["title"]))
-            # 서식에도 "언제 쓰는지·무엇을 적는지"가 들어 있어 함께 찾아봅니다.
-            for form in intranet.fetch_intranet_form_texts(org_id):
-                articles.extend(split_articles(form["content"], "form",
-                                               f"form://{form['id']}", form["title"]))
+            if intranet.is_intranet_enabled():
+                for reg in intranet.fetch_intranet_regulations(org_id):
+                    articles.extend(split_articles(reg["content"], "intranet",
+                                                   f"intranet://{reg['id']}", reg["title"]))
+                for form in intranet.fetch_intranet_form_texts(org_id):
+                    articles.extend(split_articles(form["content"], "form",
+                                                   f"form://{form['id']}", form["title"]))
         except Exception as e:
-            print(f"⚠️  인트라넷 규정 로드 실패 ({org_id}): {e}")
+            print(f"⚠️  인트라넷 규정 읽기 실패 ({org_id}): {e}")
 
         idx = RuleIndex(articles)
         _cache[org_id] = (key, idx)

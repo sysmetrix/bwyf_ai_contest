@@ -159,11 +159,18 @@ def _mock_send(manifest: dict, files: list[Path], provider: dict) -> SendResult:
         "state": "draft",
         "title": manifest.get("title"),
         "contents": manifest.get("body"),
+        "task": (manifest.get("task") or {}).get("name"),
+        "form_code": _form_code(manifest),
+        "amount_won": (manifest.get("slots") or {}).get("amount_won"),
         "drafter": manifest.get("user_id"),
+        "org_id": manifest.get("org_id"),
         "approval_line": manifest.get("approval_line") or [],
         "attachments": [f.name for f in files],
+        "fields": manifest.get("_fields") or {},
         "package_id": manifest.get("id"),
         "created": today.isoformat(timespec="seconds"),
+        "history": [{"at": today.isoformat(timespec="seconds"),
+                     "note": "서무비서가 올림(임시저장)"}],
     }
     _mock_write(data)
     return SendResult(ok=True, provider="mock", doc_no=doc_no, state="draft",
@@ -278,6 +285,10 @@ def _short(exc: Exception) -> str:
 def send(org_id: str, manifest: dict) -> SendResult:
     """결재 패키지를 인트라넷에 기안으로 올립니다(임시저장까지만)."""
     provider, name = _config()
+    # 가상 결재함도 서식 칸을 채울 수 있게 값을 실어 둡니다.
+    manifest = {**manifest, "org_id": org_id,
+                "_fields": _fields(manifest, store.load_profile(org_id),
+                                   store.find_user(org_id, manifest.get("user_id")))}
     files = _attachments(org_id, manifest)
     kind = provider.get("type")
     if kind == "amaranth_10":
@@ -456,3 +467,49 @@ def _intranet_submit(doc_no: str, provider: dict) -> SendResult:
         return SendResult(ok=False, provider="intranet_api",
                         error=f"인트라넷 상신 오류: {str(e)}",
                         seconds=time.time() - start)
+
+ACTIONS = {"approve": "승인", "agree": "협조 동의", "reject": "반려"}
+
+
+def act(doc_no: str, user_id: str, action: str, comment: str = "") -> dict:
+    """결재선에 있는 사람이 승인·협조 동의·반려를 누른 결과를 적습니다.
+
+    결재선을 순서대로 보아 아직 처리하지 않은 첫 자리를 채웁니다. 모두 끝나면
+    문서가 '결재완료'가 되고, 한 명이라도 반려하면 그 자리에서 멈춥니다.
+    """
+    if action not in ACTIONS:
+        raise ValueError(f"알 수 없는 처리입니다: {action}")
+    data = _mock_read()
+    doc = (data.get("documents") or {}).get(doc_no)
+    if not doc:
+        raise ValueError("가상 결재함에 그 문서가 없습니다")
+    if doc.get("state") in ("draft",):
+        raise ValueError("아직 상신하지 않은 문서입니다")
+    if doc.get("state") in ("approved", "rejected"):
+        raise ValueError("이미 끝난 문서입니다")
+
+    line = doc.get("approval_line") or []
+    # 결재선이 이름만 적힌 옛 모양이면 처리 기록을 담을 수 있게 바꿉니다.
+    if line and not isinstance(line[0], dict):
+        line = [{"order": i + 1, "type": "결재", "user_id": None, "label": str(x),
+                 "result": None, "at": None, "comment": ""} for i, x in enumerate(line)]
+
+    now = datetime.now().isoformat(timespec="seconds")
+    slot = next((a for a in line if not a.get("result")), None)
+    if slot is None:
+        raise ValueError("더 처리할 결재 자리가 없습니다")
+    slot.update({"result": action, "at": now, "comment": comment,
+                 "user_id": slot.get("user_id") or user_id or None})
+
+    if action == "reject":
+        doc["state"] = "rejected"
+    elif all(a.get("result") for a in line):
+        doc["state"] = "approved"
+    else:
+        doc["state"] = "in_progress"
+
+    doc["approval_line"] = line
+    doc.setdefault("history", []).append(
+        {"at": now, "note": f"{ACTIONS[action]} ({user_id or '담당자'})"})
+    _mock_write(data)
+    return doc

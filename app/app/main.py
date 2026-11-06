@@ -7,16 +7,19 @@ from __future__ import annotations
 import os
 import threading
 import time
+from pathlib import Path
 from urllib.parse import quote
 from datetime import date, timedelta
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
+                               Response)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import (approval, credentials, drafter, engine, forms, helpdesk, intranet, llm,
-               mailer, package, roles, rpa, store, sync, transfer, understand, updater)
+from . import (approval, credentials, drafter, engine, forms, helpdesk, intranet,
+               intranet_ui, llm, mailer, package, roles, rpa, store, sync,
+               transfer, understand, updater)
 from .rules import get_index, list_rule_files, warm_all
 from .version import VERSION
 
@@ -321,6 +324,43 @@ def my_role(org_id: str, user_id: str | None = None):
     return roles.authority(profile, user, store.load_tasks())
 
 
+def _pending_in_mock(who: dict, profile: dict | None = None) -> list[dict]:
+    """가상 결재함에서 이 사람이 결재할 문서를 고릅니다.
+
+    결재선에는 '실장'처럼 대표 직위가 적히는데, 실장·관장·센터장은 같은 1급입니다.
+    그래서 글자가 아니라 **직급**으로 맞춥니다(역할 판정과 같은 방식).
+    결재선이 비어 있으면 결재자 모두에게 보여 줍니다.
+    """
+    profile = profile or {}
+    my_rank = who.get("rank")
+
+    def mine(label: str) -> bool:
+        r = roles._approver_rank(profile, label)
+        if r is not None and my_rank is not None:
+            return r == my_rank
+        t = (who.get("title") or "").strip()
+        return bool(t) and (t in label or label in t)
+
+    out = []
+    for doc in approval.mock_documents(limit=200):
+        if doc.get("state") not in ("submitted", "in_progress"):
+            continue
+        labels = [str(a.get("label") if isinstance(a, dict) else a)
+                  for a in (doc.get("approval_line") or [])]
+        if labels and not any(mine(x) for x in labels):
+            continue
+        out.append({
+            "doc_no": doc["doc_no"], "title": doc.get("title"),
+            "date": (doc.get("created") or "")[:10], "status": doc.get("state"),
+            "form_title": (intranet_ui.BY_ID.get(f"form:{doc.get('form_code')}") or {}).get("title"),
+            "task": doc.get("task"), "amount": doc.get("amount_won"),
+            "drafter": doc.get("drafter"), "approvers": labels,
+            "attachments": len(doc.get("attachments") or []),
+        })
+    out.sort(key=lambda d: d["doc_no"], reverse=True)
+    return out
+
+
 @app.get("/api/orgs/{org_id}/briefing")
 def briefing(org_id: str, user_id: str | None = None):
     """화면을 열 때 먼저 보여 줄 브리핑.
@@ -335,15 +375,20 @@ def briefing(org_id: str, user_id: str | None = None):
     pending = []
     reachable = True
     if who["is_approver"]:
-        try:
-            st = intranet_status()
-            reachable = bool(st.get("reachable"))
-            if reachable:
-                pending = intranet.fetch_pending_approvals(who.get("title"))
-                if not pending:
-                    pending = intranet.fetch_pending_approvals()
-        except Exception:
-            reachable = False
+        if intranet.is_intranet_enabled():
+            # 바깥 그룹웨어에 붙여 둔 경우
+            try:
+                st = intranet_status()
+                reachable = bool(st.get("reachable"))
+                if reachable:
+                    pending = intranet.fetch_pending_approvals(who.get("title"))
+                    if not pending:
+                        pending = intranet.fetch_pending_approvals()
+            except Exception:
+                reachable = False
+        else:
+            # 기본값: 서무비서 안의 가상 결재함(약속 v0.2)
+            pending = _pending_in_mock(who, profile)
 
     changes = {}
     try:
@@ -848,6 +893,88 @@ def approval_mock_get(doc_no: str):
     if not doc:
         raise HTTPException(404, "가상 결재함에 그 문서가 없습니다")
     return doc
+
+
+# ---------- 인트라넷 화면 (약속 v0.2: 서무비서가 /intranet/ 으로 함께 내줍니다) ----------
+
+@app.get("/intranet", include_in_schema=False)
+def intranet_root():
+    return RedirectResponse("/intranet/", status_code=307)
+
+
+@app.get("/intranet/", response_class=HTMLResponse)
+def intranet_page(user_id: str | None = None):
+    """가상 인트라넷. 결재함은 서무비서 것을 그대로 보여 줍니다."""
+    try:
+        return HTMLResponse(intranet_ui.page_html(intranet_ui.member(user_id or "")))
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@app.get("/api/intranet/state")
+def intranet_state():
+    """화면이 새로고침 없이 결재함을 다시 읽을 때 씁니다."""
+    return {"ok": True, "state": intranet_ui.bootstrap_state()}
+
+
+@app.get("/api/intranet/users")
+def intranet_users():
+    return {"ok": True, "data": intranet_ui.members()}
+
+
+@app.get("/api/files/{file_id:path}")
+def intranet_file(file_id: str):
+    """인트라넷 화면이 붙임·규정 원문을 내려받는 곳입니다."""
+    doc = intranet_ui.BY_ID.get(file_id)
+    if doc:
+        body = Path(doc["_path"]).read_bytes()
+        return Response(body, media_type="text/markdown; charset=utf-8", headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(doc['_name'])}"})
+    f = intranet_ui.attachment_path(file_id)
+    if f:
+        return Response(f.read_bytes(), media_type="application/octet-stream", headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(f.name)}"})
+    raise HTTPException(404, "그 파일을 찾지 못했습니다")
+
+
+class ApprovalActionBody(BaseModel):
+    user_id: str = ""
+    action: str = "approve"      # approve / agree / reject
+    comment: str = ""
+
+
+@app.post("/api/approval/mock/{doc_no}/submit")
+def approval_mock_submit(doc_no: str, body: ApprovalActionBody | None = None):
+    """사람이 인트라넷 화면에서 상신을 누른 경우입니다."""
+    res = _guard(approval.submit, doc_no)
+    if not res.ok:
+        raise HTTPException(400, res.error or "상신하지 못했습니다")
+    doc = approval.mock_document(doc_no)
+    _reflect_package(doc, "submitted")
+    return doc
+
+
+@app.post("/api/approval/mock/{doc_no}/actions")
+def approval_mock_action(doc_no: str, body: ApprovalActionBody):
+    """결재선의 승인·협조 동의·반려."""
+    doc = _guard(approval.act, doc_no, body.user_id, body.action, body.comment)
+    _reflect_package(doc, doc.get("state"))
+    return doc
+
+
+def _reflect_package(doc: dict | None, state: str | None) -> None:
+    """결재함에서 일어난 일을 서무비서의 결재 패키지 상태에도 반영합니다."""
+    if not doc or not doc.get("package_id"):
+        return
+    org_id = doc.get("org_id")
+    mapping = {"submitted": "submitted", "approved": "done"}
+    target = mapping.get(state or "")
+    if not (org_id and target):
+        return
+    try:
+        package.set_state(org_id, doc["package_id"], target, "인트라넷 결재함에서 처리됨")
+    except Exception:
+        pass
 
 
 @app.get("/api/version")

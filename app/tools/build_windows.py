@@ -125,6 +125,23 @@ def build(update_url: str | None = None) -> Path:
             shutil.copy2(p, dst)
     (APP / "outputs").mkdir(exist_ok=True)
 
+    # 재단 규정·서식(data/)과 인트라넷 화면은 app/ 바깥에 있습니다.
+    # 설치판에서는 app 안 bundled/ 로 함께 담습니다(intranet_ui 가 양쪽을 다 찾습니다).
+    repo = ROOT.parent
+    for src, dst in ((repo / "data", APP / "bundled" / "data"),
+                     (repo / "intranet", APP / "bundled" / "intranet")):
+        if not src.exists():
+            print(f"    [건너뜀] {src.name} 를 찾지 못했습니다")
+            continue
+        for f in sorted(src.rglob("*")):
+            if not f.is_file() or any(x in f.parts for x in
+                                      ("__pycache__", ".git", "운영자료", ".venv")):
+                continue
+            t = dst / f.relative_to(src)
+            t.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, t)
+        print(f"    {src.name}: {sum(1 for _ in dst.rglob('*') if _.is_file())}개 담음")
+
     # 처음 켤 때 파이썬이 패키지를 하나하나 번역하느라 10초 넘게 걸리지 않도록 미리 번역해 둡니다
     subprocess.run([str(pydir / "python.exe"), "-m", "compileall", "-q", str(site), str(APP / "app"), str(APP / "run.py")],
                    check=False)

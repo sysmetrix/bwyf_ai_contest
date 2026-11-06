@@ -40,7 +40,7 @@ mail:
       pass_env: MAIL_PASS
       from_addr: seobi@example.invalid
 approval:
-  provider: intranet
+  provider: mock
   providers:
     mock:
       type: mock
@@ -55,7 +55,8 @@ approval:
       base_url: http://127.0.0.1:8100
       api_key_env: INTRANET_API_KEY
 intranet:
-  enabled: true
+  enabled: false   # 약속 v0.2: 인트라넷은 서무비서가 /intranet/ 으로 함께 냅니다
+                                    # 바깥 그룹웨어에 붙일 때만 true
   base_url: http://127.0.0.1:8100
   api_key_env: INTRANET_API_KEY
   org_id: bwyf
