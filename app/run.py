@@ -83,7 +83,7 @@ def _run_with_tray(server, url: str) -> None:
     t.start()
     icon = pystray.Icon("seobi", Image.open(ROOT / "web" / "seobi.ico"), "서비 — 켜져 있어요",
                         menu=pystray.Menu(
-                            pystray.MenuItem("서비 열기", lambda: webbrowser.open(url), default=True),
+                            # 서비는 화면 위젯으로 씁니다. 여기서는 끄기만 제공합니다.
                             pystray.MenuItem("서비 끄기", lambda ic: ic.stop())))
 
     def watch():  # 화면의 '서비 끄기'나 업데이트로 서버가 먼저 끝나면 아이콘도 내립니다
@@ -107,7 +107,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="서무비서 실행")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않기")
+    # 서비는 화면에 떠 있는 위젯으로 씁니다. 브라우저는 기본으로 열지 않습니다.
+    # 개발 중에 브라우저로 보고 싶을 때만 --browser 를 붙입니다.
+    parser.add_argument("--browser", action="store_true", help="브라우저로도 열기(개발용)")
+    parser.add_argument("--no-browser", action="store_true",
+                        help=argparse.SUPPRESS)          # 예전 호출 호환
     parser.add_argument("--stop", action="store_true", help="켜져 있는 서비 끄기")
     args = parser.parse_args()
 
@@ -136,7 +140,7 @@ def main() -> None:
             break
         if _is_seobi(port):  # 이미 켜져 있으면(아이콘을 또 누른 경우) 브라우저만 엽니다
             print(f"\n  서비가 이미 켜져 있습니다 → http://localhost:{port}")
-            if not args.no_browser:
+            if args.browser:
                 webbrowser.open(f"http://localhost:{port}")
             return
     else:
@@ -152,7 +156,7 @@ def main() -> None:
         import ctypes
         ctypes.windll.kernel32.SetConsoleTitleW("서비 - 이 창을 닫으면 서비가 꺼져요")
     print(f"\n  서무비서가 시작됐습니다 → {url}\n  (이 창을 닫으면 서비도 꺼집니다. 끝내려면 Ctrl+C)\n")
-    if not args.no_browser:
+    if args.browser:
         def open_when_ready():  # 서버가 실제로 준비되면 브라우저를 엽니다(처음 켤 때 느려도 '연결할 수 없음'이 안 뜨게)
             for _ in range(240):
                 if _port_in_use(port):

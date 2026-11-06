@@ -29,7 +29,8 @@ ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / ".cache" / "build"
 APP = BUILD / "서비"
 EXAMPLE_ORGS = {"demo-agency", "demo-city"}
-SKIP_DIRS = {".git", ".claude", ".pytest_cache", "__pycache__", "outputs", ".cache", "tests", "data_backups"}
+SKIP_DIRS = {".git", ".claude", ".pytest_cache", "__pycache__", "outputs", ".cache",
+             "tests", "data_backups", "node_modules", "desktop"}   # desktop 은 3.5단계에서 따로 넣습니다
 SKIP_FILES = {".env", ".install_id", "server.log", "scratch_out.txt", "설치.bat", "설치.sh", "실행.bat", "render.yaml"}
 
 INSTALL_BAT = r'''@echo off
@@ -48,9 +49,15 @@ if not exist "python\python.exe" (
 
 RUN_BAT = r'''@echo off
 chcp 65001 >nul
+REM 서비를 화면에 띄웁니다. 서버는 서비가 알아서 켭니다.
 cd /d "%~dp0"
-"python\python.exe" run.py
-pause
+if exist "desktop\node_modules\electron\dist\electron.exe" (
+  start "" "desktop\node_modules\electron\dist\electron.exe" "desktop"
+) else (
+  echo   화면 위젯이 들어 있지 않아 서버만 켭니다.
+  "python\python.exe" run.py --browser
+  pause
+)
 '''
 
 
@@ -146,8 +153,26 @@ def build(update_url: str | None = None) -> Path:
     subprocess.run([str(pydir / "python.exe"), "-m", "compileall", "-q", str(site), str(APP / "app"), str(APP / "run.py")],
                    check=False)
 
+    print("3.5/5 화면 위젯(Electron) 넣기")
+    desk_src = ROOT / "desktop"
+    if desk_src.exists() and shutil.which("npm"):
+        try:
+            subprocess.run(["npm", "install", "--omit=dev", "--silent"],
+                           cwd=str(desk_src), check=True, shell=(sys.platform == "win32"))
+            for f in sorted(desk_src.rglob("*")):
+                if not f.is_file() or ".git" in f.parts:
+                    continue
+                t = APP / "desktop" / f.relative_to(desk_src)
+                t.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, t)
+            print("    위젯 넣음")
+        except Exception as exc:
+            print(f"    [건너뜀] 위젯을 넣지 못했습니다: {str(exc)[:80]}")
+    else:
+        print("    [건너뜀] npm 이 없어 위젯을 넣지 못했습니다")
+
     print("4/5 설치·실행 파일 만들기")
-    for name, body in [("설치하기.bat", INSTALL_BAT), ("설치 없이 바로 실행.bat", RUN_BAT)]:
+    for name, body in [("설치하기.bat", INSTALL_BAT), ("서비 실행.bat", RUN_BAT)]:
         (APP / name).write_text(body, encoding="utf-8", newline="\r\n")
 
     print("5/5 압축하기")

@@ -24,7 +24,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from . import engine, forms, llm, store
+from . import engine, forms, learning, llm, store
 
 STATES = ["draft", "ready", "staged", "submitted", "done"]
 
@@ -105,6 +105,14 @@ def build(org_id: str, message: str, *, user_id: str | None = None,
         raise ValueError("어떤 업무인지 먼저 정해야 결재 패키지를 만들 수 있어요")
 
     profile = store.load_profile(org_id)
+
+    # 이 PC에서 배운 값으로 빈 칸을 미리 채웁니다(사람이 말한 값은 덮지 않습니다).
+    task_id = (r.get("task") or {}).get("id")
+    slots_before = (r.get("understanding") or {}).get("slots") or {}
+    slots_after, prefilled = learning.apply_defaults(org_id, user_id, task_id, slots_before)
+    if prefilled:
+        r.setdefault("understanding", {})["slots"] = slots_after
+
     pkg_id = f"{date.today():%Y%m%d}-{uuid.uuid4().hex[:6]}"
     d = _dir(org_id, pkg_id)
     (d / "붙임").mkdir(parents=True, exist_ok=True)
@@ -155,8 +163,10 @@ def build(org_id: str, message: str, *, user_id: str | None = None,
                      for e in (r.get("evidence") or [])],
         "warnings": r.get("warnings") or [],
         "attachments": attachments,
+        "prefilled": prefilled,          # 배운 값으로 채운 칸(화면에서 표시)
         "history": [{"at": datetime.now().isoformat(timespec="seconds"), "state": "draft",
-                     "note": "서비가 규정에서 뽑아 만들었습니다"}],
+                     "note": "서비가 규정에서 뽑아 만들었습니다"
+                             + (f" (배운 값으로 {', '.join(prefilled)} 채움)" if prefilled else "")}],
         "intranet": None,
     }
     _manifest_path(org_id, pkg_id).write_text(
@@ -206,6 +216,8 @@ def correct(org_id: str, pkg_id: str, changes: dict, note: str = "사람이 보�
     m = load(org_id, pkg_id)
     if m["state"] not in ("draft", "ready"):
         raise ValueError("이미 인트라넷으로 넘어간 건은 여기서 고칠 수 없어요")
+    before = {"slots": dict(m.get("slots") or {}),
+              "approval_line": list(m.get("approval_line") or [])}
     touched = []
     for k, v in (changes or {}).items():
         if k in EDITABLE and v is not None:
@@ -214,6 +226,12 @@ def correct(org_id: str, pkg_id: str, changes: dict, note: str = "사람이 보�
     if touched:
         m["history"].append({"at": datetime.now().isoformat(timespec="seconds"),
                              "state": m["state"], "note": f"{note}: {', '.join(touched)}"})
+        # 사람이 일부러 고친 값이라 다음부터 그대로 씁니다.
+        try:
+            learning.record_correction(org_id, m.get("user_id"),
+                                       (m.get("task") or {}).get("id"), before, m)
+        except Exception:
+            pass
     return save(org_id, m)
 
 
@@ -227,6 +245,12 @@ def set_state(org_id: str, pkg_id: str, state: str, note: str = "") -> dict:
     m["history"].append({"at": datetime.now().isoformat(timespec="seconds"),
                          "state": state, "note": note})
     # 상신까지 끝나면 후속 업무를 할 일 목록에 올립니다
+    if state in ("staged", "submitted"):
+        try:
+            learning.record_use(org_id, m.get("user_id"), (m.get("task") or {}).get("id"),
+                                m.get("slots"), m.get("approval_line"))
+        except Exception:
+            pass
     if state == "submitted":
         try:
             store.append_history(org_id, {

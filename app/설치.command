@@ -35,10 +35,22 @@ if ! .venv/bin/python -m pip install --disable-pip-version-check -q -r requireme
   exit 1
 fi
 chmod +x "서비 실행.command" "서비 끄기.command" 2>/dev/null
+
+# 화면에 떠 있는 서비(위젯)를 쓰려면 Electron 이 필요합니다.
+if [ ! -x "desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron" ]; then
+  if command -v npm >/dev/null 2>&1; then
+    echo "  화면에 띄울 서비를 준비하는 중... (처음 한 번, 2~4분)"
+    (cd desktop && npm install --silent) || echo "  [안내] 위젯 준비에 실패했어요. 인터넷 연결을 확인해 주세요."
+  else
+    echo "  [안내] Node.js 가 없어 화면 위젯을 준비하지 못했어요."
+    echo "         https://nodejs.org 에서 설치한 뒤 이 파일을 다시 열어 주세요."
+  fi
+fi
+
 # 바탕화면에 바로가기(누르면 서비가 켜짐)
 ln -sf "$PWD/서비 실행.command" "$HOME/Desktop/서비.command" 2>/dev/null && echo "  바탕화면에 '서비' 바로가기를 만들었어요."
 echo ""
 echo "  설치가 끝났습니다. 다음부터는 바탕화면의 '서비' 또는 '서비 실행.command'만 열면 됩니다."
-echo "  지금 서비를 켭니다. (이 창을 닫거나 Control+C를 누르면 서비가 꺼져요)"
+echo "  지금 서비를 켭니다. 화면 구석에 서비가 나타나요."
 echo ""
-exec .venv/bin/python run.py
+exec ./"서비 실행.command"

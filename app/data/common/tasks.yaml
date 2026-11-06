@@ -27,6 +27,8 @@ tasks:
   next_actions:
   - 출장 신청 결재 올리기
   - 복귀 후 여비 정산 준비
+  next_task: travel_settlement
+  next_prompt: 출장 다녀와서 여비 정산해야 해요
 - id: travel_settlement
   name: 출장 여비 정산
   category: 출장·여비
@@ -138,6 +140,8 @@ tasks:
   - 행사 계획 기안문 작성
   - 장소·예산 확인
   - 결재 올리기
+  next_task: general_approval
+  next_prompt: 행사 끝났는데 결과보고서 올려야 해요
 - id: general_approval
   name: 일반 기안/결재
   category: 결재
@@ -221,6 +225,8 @@ tasks:
   next_actions:
   - 견적 받기
   - '{용어:구매 요청서} 결재 올리기'
+  next_task: general_approval
+  next_prompt: 물품 받았는데 지출결의 올려야 해요
 - id: lecture_report
   name: 외부강의 신고
   category: 외부강의
@@ -253,6 +259,8 @@ tasks:
   next_actions:
   - 외부강의 신고서 올리기
   - 사례금 상한 확인
+  next_task: excess_honorarium
+  next_prompt: 사례금이 상한을 넘었는데 어떻게 해요
 - id: excess_honorarium
   name: 초과사례금 신고
   category: 외부강의

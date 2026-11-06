@@ -18,8 +18,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import (approval, credentials, drafter, engine, forms, helpdesk, intranet,
-               intranet_ui, llm, mailer, package, roles, rpa, store, sync,
-               transfer, understand, updater)
+               intranet_ui, learning, llm, mailer, package, roles, rpa, store,
+               sync, transfer, understand, updater)
 from .rules import get_index, list_rule_files, warm_all
 from .version import VERSION
 
@@ -237,9 +237,18 @@ def intranet_status():
     """지금 어디에 붙어 있고 무엇을 읽어 두었는지."""
     cfg = store.load_config().get("intranet") or {}
     env = cfg.get("api_key_env", "INTRANET_API_KEY")
+    mode = cfg.get("mode") or "api"
     out = {"enabled": bool(cfg.get("enabled")), "base_url": cfg.get("base_url"),
-           "org_id": cfg.get("org_id"), "api_key_env": env,
+           "org_id": cfg.get("org_id"), "api_key_env": env, "mode": mode,
+           "user_id": cfg.get("user_id"),
            "api_key_set": store.secret_is_set(env), "reachable": False}
+    if mode == "rpa":
+        # 아이디·비밀번호 방식은 비밀번호가 보관돼 있으면 '닿는다'로 봅니다.
+        # (확인하려고 매번 로그인하면 느리고, 계정 잠금 위험도 있습니다)
+        out["password_saved"] = bool(credentials.load(cfg.get("base_url") or "",
+                                                      cfg.get("user_id") or ""))
+        out["reachable"] = out["password_saved"]
+        return out
     if cfg.get("enabled"):
         try:
             client = intranet.IntranetClient(base_url=cfg.get("base_url"),
@@ -278,8 +287,16 @@ def intranet_connect(body: ConnectBody):
                            "org_id": body.org_id.strip() or "",
                            "use_regulations": True, "use_forms": True}
         store._write_config_keep_comments(cfg)
+        learned = {}
+        if body.learn:
+            for org in store.list_orgs():
+                oid = org["id"] if isinstance(org, dict) else org
+                try:
+                    learned[oid] = {"users": store.sync_users_from_intranet(oid)}
+                except Exception as exc:
+                    learned[oid] = {"error": str(exc)[:160]}
         return {"ok": True, "mode": "rpa", "base_url": base, "user_id": body.user_id,
-                "password_saved": saved, "note": note}
+                "password_saved": saved, "note": note, "learned": learned}
 
     env = "INTRANET_API_KEY"
     if body.api_key.strip():
@@ -433,6 +450,16 @@ def dashboard(org_id: str, user_id: str | None = None):
     overdue = [i for i in items if i["deadline_due"] < today]
     this_week = [i for i in items if today <= i["deadline_due"] <= soon]
     recent = _guard(store.count_recent, org_id, user_id, 7)
+    # 작업내역에서 다음 작업으로 바로 이어 갈 수 있게 연결 정보를 붙입니다.
+    tasks = {t["id"]: t for t in store.load_tasks()}
+    for it in items:
+        t = tasks.get(it.get("task_id"))
+        nxt = tasks.get((t or {}).get("next_task") or "")
+        if nxt:
+            it["next"] = {"task_id": nxt["id"], "name": nxt["name"],
+                          "prompt": t.get("next_prompt") or f"{nxt['name']} 알려주세요"}
+        if t:
+            it["steps_left"] = t.get("next_actions") or []
     return {"open": items, "overdue": len(overdue), "this_week": len(this_week),
             "total_open": len(items), "recent_processed": recent}
 
@@ -975,6 +1002,21 @@ def _reflect_package(doc: dict | None, state: str | None) -> None:
         package.set_state(org_id, doc["package_id"], target, "인트라넷 결재함에서 처리됨")
     except Exception:
         pass
+
+
+# ---------- 개인 학습 (이 PC 안에만 있습니다) ----------
+
+@app.get("/api/orgs/{org_id}/learning")
+def learning_summary(org_id: str, user_id: str | None = None):
+    """무엇을 배웠는지 그대로 보여 줍니다. 사람이 확인하고 지울 수 있게."""
+    return _guard(learning.summary, org_id, user_id)
+
+
+@app.delete("/api/orgs/{org_id}/learning")
+def learning_forget(org_id: str, user_id: str | None = None,
+                    task_id: str | None = None, key: str | None = None):
+    """배운 것을 지웁니다. 범위를 좁혀 하나만 지울 수도 있습니다."""
+    return _guard(learning.forget, org_id, user_id, task_id, key)
 
 
 @app.get("/api/version")

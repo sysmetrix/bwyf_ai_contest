@@ -459,7 +459,28 @@ def page_html(user: dict | None = None) -> str:
                           "users": [_ui_user(m) for m in MEMBERS]},
                          ensure_ascii=False)
             + ";</script>")
-    return html.replace("<head>", "<head>" + boot, 1) if "<head>" in html else boot + html
+    # ?doc=문서번호 로 들어오면 그 문서를 바로 펼칩니다.
+    # 준호의 index.html 은 손대지 않고, 뒤에 작은 스크립트만 덧붙입니다.
+    jump = """<script>
+(function(){
+  var m = new URLSearchParams(location.search).get('doc');
+  if (!m) return;
+  var tries = 0;
+  var timer = setInterval(function(){
+    if (++tries > 40) { clearInterval(timer); return; }
+    var go = document.querySelector('[data-page="전자결재"]');
+    if (go && !document.querySelector('[data-item]')) { go.click(); return; }
+    var row = document.querySelector('[data-item="' + CSS.escape(m) + '"]');
+    if (row) { clearInterval(timer); row.click(); return; }
+    var folders = ['임시보관문서','상신문서','결재대기문서','결재완료문서'];
+    var f = folders[tries % folders.length];
+    var btn = document.querySelector('[data-folder="' + f + '"]');
+    if (btn) btn.click();
+  }, 250);
+})();
+</script>"""
+    html = html.replace("<head>", "<head>" + boot, 1) if "<head>" in html else boot + html
+    return html.replace("</body>", jump + "</body>", 1) if "</body>" in html else html + jump
 
 
 def members() -> list[dict]:

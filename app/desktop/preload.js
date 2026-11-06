@@ -17,4 +17,6 @@ contextBridge.exposeInMainWorld("seobiShell", {
   // 걷는 중인지, 어느 쪽으로 가는지
   onWalk: (fn) => ipcRenderer.on("seobi:walk", (_e, p) => fn(p)),
   setRoam: (on) => ipcRenderer.send("seobi:roam", !!on),
+  // 기안을 올린 뒤 인트라넷 창을 띄워 '올라갔다'를 눈으로 보여 줍니다
+  openIntranet: (docNo) => ipcRenderer.send("seobi:intranet", docNo || ""),
 });

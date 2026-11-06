@@ -14,3 +14,5 @@ data_backups/
 .install_id
 data/orgs/*/packages/
 data/orgs/*/intranet_sync.json
+# 이 PC에서만 배운 개인 자료. 절대 올리지 않습니다.
+data/orgs/*/개인학습.json

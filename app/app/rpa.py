@@ -293,3 +293,125 @@ def _friendly(exc: Exception) -> str:
     if "executable doesn't exist" in text or "Executable doesn" in text:
         return "크롬 또는 엣지가 필요합니다. 둘 중 하나를 설치해 주세요"
     return text.splitlines()[0][:180] if text else "알 수 없는 오류"
+
+# ---------- 조직도 탐색 ----------
+# 역할을 판정하려면 '내 직급'을 알아야 합니다. API 가 없는 그룹웨어에서는
+# 사람이 보는 화면을 뒤져 찾습니다. 그룹웨어마다 메뉴 이름이 달라서
+# 흔히 쓰는 이름을 차례로 눌러 봅니다.
+
+ORG_MENUS = (
+    ("조직도",), ("임직원업무관리", "조직도"), ("연락처", "전체 연락처"),
+    ("인사", "조직도"), ("조직", "구성원"),
+)
+
+# 화면에서 직위를 알아보는 말. 앞쪽일수록 높은 자리입니다.
+TITLE_RANKS = [
+    (0, ("대표이사", "이사장", "원장")),
+    (1, ("실장", "관장", "센터장", "본부장")),
+    (2, ("부장", "팀장")),
+    (3, ("차장",)),
+    (4, ("대리", "과장")),
+    (5, ("주임", "사원", "직원")),
+]
+
+
+def rank_of(title: str) -> int | None:
+    """직위 글자에서 직급을 읽어 냅니다. 전결표와 맞추는 데 씁니다."""
+    t = (title or "").strip()
+    if not t:
+        return None
+    for rank, words in TITLE_RANKS:
+        if any(w in t for w in words):
+            return rank
+    return None
+
+
+def read_members(base_url: str, user_id: str, password: str, *,
+                 headless: bool = True) -> RpaResult:
+    """조직도를 뒤져 사람·부서·직위를 모으고, 직위에서 직급을 읽어 냅니다.
+
+    이 결과가 있어야 서무비서가 '나는 몇 급이고, 무엇을 전결할 수 있는지'를
+    기관 전결표와 맞춰 볼 수 있습니다.
+    """
+    t0 = time.perf_counter()
+    try:
+        with session(base_url, user_id, password, headless=headless) as page:
+            rows, used = [], None
+            for menu in ORG_MENUS:
+                try:
+                    _open_menu(page, *menu)
+                except Exception:
+                    continue
+                page.wait_for_timeout(500)
+                found = _scrape_people(page)
+                if found:
+                    rows, used = found, " › ".join(menu)
+                    break
+
+            # 조직도를 못 찾으면 최소한 '나'는 알아냅니다. 그것만으로도
+            # 역할 판정이 됩니다.
+            me = _scrape_me(page, user_id)
+            if me and not any(m.get("id") == me.get("id") for m in rows):
+                rows.insert(0, me)
+
+            if not rows:
+                return RpaResult(ok=False, seconds=time.perf_counter() - t0,
+                                 error="조직도를 찾지 못했습니다. 메뉴 이름을 알려 주시면 맞추겠습니다")
+            return RpaResult(ok=True, data=rows, seconds=time.perf_counter() - t0,
+                             meta={"메뉴": used or "(내 정보만)", "인원": len(rows)})
+    except Exception as exc:
+        return RpaResult(ok=False, error=_friendly(exc), seconds=time.perf_counter() - t0)
+
+
+def _scrape_people(page) -> list[dict]:
+    """표나 목록에서 이름·부서·직위로 보이는 줄을 모읍니다."""
+    import re
+    out, seen = [], set()
+    text_blocks = []
+    for sel in ("table tr", "li", "button.row", "[role=row]"):
+        try:
+            loc = page.locator(sel)
+            for i in range(min(loc.count(), 200)):
+                t = (loc.nth(i).inner_text() or "").strip()
+                if t:
+                    text_blocks.append(t)
+        except Exception:
+            continue
+
+    for t in text_blocks:
+        parts = [x.strip() for x in re.split(r"[\t\n·|/,]+", t) if x.strip()]
+        if not (2 <= len(parts) <= 6):
+            continue
+        title = next((x for x in parts if rank_of(x) is not None), None)
+        if not title:
+            continue
+        name = next((x for x in parts
+                     if x != title and 2 <= len(x) <= 5 and re.fullmatch(r"[가-힣]+", x)), None)
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        dept = next((x for x in parts if x not in (name, title) and len(x) <= 20), "")
+        out.append({"id": name, "name": name, "dept": dept,
+                    "title": title, "rank": rank_of(title), "source": "rpa"})
+    return out
+
+
+def _scrape_me(page, user_id: str) -> dict | None:
+    """화면 어딘가에 있는 '내 정보'에서 이름과 직위를 찾습니다."""
+    import re
+    try:
+        body = page.locator("body").inner_text()
+    except Exception:
+        return None
+    for line in (body or "").splitlines():
+        line = line.strip()
+        if len(line) > 40 or rank_of(line) is None:
+            continue
+        name = next((w for w in re.split(r"[\s·|/,]+", line)
+                     if 2 <= len(w) <= 5 and re.fullmatch(r"[가-힣]+", w)
+                     and rank_of(w) is None), None)
+        if name:
+            title = next(w for w in re.split(r"[\s·|/,]+", line) if rank_of(w) is not None)
+            return {"id": user_id or name, "name": name, "dept": "",
+                    "title": title, "rank": rank_of(title), "source": "rpa-me"}
+    return None

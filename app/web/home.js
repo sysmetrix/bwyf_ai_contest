@@ -518,6 +518,10 @@
   // 2단계 — 올라갔습니다. 상신은 사람이 누릅니다.
   function renderSent(box, m, res) {
     const info = m.intranet || res || {};
+    // 올라간 것을 눈으로 확인할 수 있게 인트라넷 창을 바로 띄웁니다.
+    if (window.seobiShell && window.seobiShell.openIntranet) {
+      setTimeout(() => window.seobiShell.openIntranet(info.doc_no || ""), 400);
+    }
     box.className = "card dr dr-done";
     box.innerHTML = `
       <div class="dr-head"><b>인트라넷에 올라갔습니다</b>
@@ -529,9 +533,19 @@
       </div>
       <p class="muted dr-note">${esc((info.meta || {}).note || "인트라넷에서 내용을 확인하신 뒤 상신해 주세요.")}</p>
       <div class="dr-act">
-        <button type="button" class="ghost dr-view">올라간 내용 보기</button>
+        <button type="button" class="ghost dr-open">인트라넷에서 보기</button>
+        <button type="button" class="ghost dr-view">본문만 보기</button>
         <button type="button" class="primary dr-submit">확인했습니다 · 상신</button>
       </div>`;
+
+    const openBtn = box.querySelector(".dr-open");
+    if (openBtn) openBtn.onclick = () => {
+      if (window.seobiShell && window.seobiShell.openIntranet) {
+        window.seobiShell.openIntranet(info.doc_no || "");
+      } else {
+        window.open(`/intranet/?doc=${encodeURIComponent(info.doc_no || "")}`, "_blank");
+      }
+    };
 
     box.querySelector(".dr-view").onclick = async (e) => {
       const btn = e.currentTarget;
@@ -780,6 +794,20 @@
           <span class="due">${esc(it.deadline_label || "기한")} ${esc(it.deadline_due || "")}${over ? " · 지남" : ""}</span>
         </div>
         ${it.message ? `<div class="muted">${esc(it.message)}</div>` : ""}`;
+      // 다음 작업으로 바로 이어 가기 (작업내역은 다음 일로 넘어가는 자리입니다)
+      if (it.next) {
+        const nb = document.createElement("button");
+        nb.type = "button"; nb.className = "primary h-next";
+        nb.textContent = `다음: ${it.next.name}`;
+        nb.onclick = () => { openDrawer(false); ask(it.next.prompt); };
+        box.appendChild(nb);
+      }
+      if ((it.steps_left || []).length) {
+        const hint = document.createElement("div");
+        hint.className = "h-todo-steps muted";
+        hint.textContent = "남은 일 · " + it.steps_left.join(" · ");
+        box.appendChild(hint);
+      }
       const b = document.createElement("button");
       b.type = "button"; b.className = "ghost"; b.textContent = "처리 완료";
       b.onclick = async () => {

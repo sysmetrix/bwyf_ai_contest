@@ -63,6 +63,25 @@ function place(w, h) {
   return { x: Math.round(area.x + area.width - w - MARGIN), y: Math.round(area.y + area.height - h - MARGIN) };
 }
 
+// 인트라넷은 브라우저가 아니라 서비 창으로 엽니다. 위젯만으로 끝까지 쓰기 위해서입니다.
+let intranetWin = null;
+function openIntranet(docNo) {
+  const url = `${BASE}/intranet/` + (docNo ? `?doc=${encodeURIComponent(docNo)}` : "");
+  if (intranetWin && !intranetWin.isDestroyed()) {
+    intranetWin.loadURL(url); intranetWin.show(); intranetWin.focus(); return;
+  }
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  intranetWin = new BrowserWindow({
+    width: Math.min(1280, Math.round(width * 0.92)),
+    height: Math.min(860, Math.round(height * 0.92)),
+    title: "인트라넷",
+    backgroundColor: "#eef2f7",
+    webPreferences: { contextIsolation: true },
+  });
+  intranetWin.loadURL(url);
+  intranetWin.on("closed", () => { intranetWin = null; });
+}
+
 function createWindow() {
   const { w, h } = SIZE.idle;
   const { x } = place(w, h);
@@ -91,8 +110,12 @@ function createWindow() {
 
   win.loadURL(`${BASE}/home.html?shell=desktop`);
 
-  // 바깥 링크는 기본 브라우저로
-  win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
+  // 인트라넷은 서비 창으로, 그 밖의 바깥 주소만 기본 브라우저로 보냅니다.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith(BASE)) { openIntranet(); return { action: "deny" }; }
+    shell.openExternal(url);
+    return { action: "deny" };
+  });
 
   // 다른 앱이 앞으로 와도 서비는 맨 앞을 유지합니다
   const keepOnTop = () => {
@@ -263,6 +286,8 @@ ipcMain.on("seobi:roam", (_e, on) => {
 });
 
 // ---------- 트레이 ----------
+ipcMain.on("seobi:intranet", (_e, docNo) => openIntranet(docNo));
+
 function createTray() {
   // 템플릿 이미지로 두면 알파만 써서 검은 덩어리로 보일 수 있어, 컬러 아이콘 그대로 씁니다.
   const img = nativeImage.createFromPath(path.join(ROOT, "web", "seobi-512.png")).resize({ width: 18, height: 18 });
@@ -277,7 +302,7 @@ function createTray() {
       click: (item) => { roamOn = item.checked; if (!roamOn) stopWalk(); } },
     { label: "지금 산책", click: () => roamOnce() },
     { type: "separator" },
-    { label: "브라우저에서 열기", click: () => shell.openExternal(`${BASE}/home.html`) },
+    { label: "인트라넷 열기", click: () => openIntranet() },
     { type: "separator" },
     { label: "종료", click: () => app.quit() },
   ]));

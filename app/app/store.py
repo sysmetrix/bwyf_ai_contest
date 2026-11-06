@@ -357,8 +357,23 @@ def sync_users_from_intranet(org_id: str) -> dict:
     직급·직위를 사람이 적어 넣지 않게 하려는 것입니다. 역할은 이 직급과
     기관 전결표를 맞춰 서비가 스스로 판정합니다.
     """
-    from . import intranet
-    members = intranet.fetch_org_members(org_id)
+    from . import credentials, intranet, rpa
+    cfg = load_config().get("intranet") or {}
+
+    if (cfg.get("mode") or "api") == "rpa":
+        # 아이디·비밀번호로 들어가는 기관: 화면을 뒤져 조직도를 찾습니다.
+        base, uid = cfg.get("base_url") or "", cfg.get("user_id") or ""
+        pw = credentials.load(base, uid)
+        if not pw:
+            return {"ok": False, "count": 0,
+                    "error": "그룹웨어 비밀번호가 보관돼 있지 않습니다. 연결 설정을 다시 해 주세요"}
+        res = rpa.read_members(base, uid, pw)
+        if not res.ok:
+            return {"ok": False, "count": 0, "error": res.error}
+        members = res.data or []
+    else:
+        members = intranet.fetch_org_members(org_id)
+
     if not members:
         return {"ok": False, "count": 0, "error": "조직도를 읽지 못했습니다"}
     users = [{"id": m.get("id"), "name": m.get("name"), "dept": m.get("dept"),
