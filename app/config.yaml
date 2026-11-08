@@ -62,3 +62,5 @@ intranet:
   org_id: bwyf
   use_regulations: true
   use_forms: true
+setup_done: true
+setup_skipped: true

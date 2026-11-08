@@ -40,20 +40,59 @@ _RRN = re.compile(r"\d{6}\s*-\s*\d{7}")
 
 
 def _path(org_id: str) -> Path:
+    """예전 파일 자리. 한 번 옮긴 뒤에는 읽지 않고 그대로 남겨 둡니다."""
     return store.org_dir(org_id) / FILE
 
 
-def _load(org_id: str) -> dict:
+def _ensure_migrated(org_id: str) -> None:
+    """예전 개인학습.json 이 있으면 DB 로 한 번만 옮깁니다. 파일은 지우지 않습니다."""
+    from . import db
+    old = _path(org_id)
+    if not old.exists():
+        return
+    done = store.org_dir(org_id) / (FILE + ".migrated")
+    if done.exists():
+        return
     try:
-        return json.loads(_path(org_id).read_text(encoding="utf-8"))
+        data = json.loads(old.read_text(encoding="utf-8"))
     except Exception:
-        return {"users": {}, "version": 1}
-
-
-def _save(org_id: str, data: dict) -> None:
-    data["updated"] = datetime.now().isoformat(timespec="seconds")
-    _path(org_id).write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                             encoding="utf-8")
+        return
+    moved = 0
+    with db.tx() as c:
+        for uid, by_task in (data.get("users") or {}).items():
+            for tid, b in (by_task or {}).items():
+                if tid == "_말투":
+                    continue
+                for field, counts in (b.get("fields") or {}).items():
+                    for value, n in (counts or {}).items():
+                        c.execute(
+                            "INSERT OR REPLACE INTO learning"
+                            "(org_id,user_id,task_id,field,value,score,last_at)"
+                            " VALUES (?,?,?,?,?,?,?)",
+                            (org_id, uid, tid, field, str(value), int(n), db.now()))
+                        moved += 1
+                for line, n in (b.get("line") or {}).items():
+                    c.execute(
+                        "INSERT OR REPLACE INTO learning"
+                        "(org_id,user_id,task_id,field,value,score,last_at)"
+                        " VALUES (?,?,?,?,?,?,?)",
+                        (org_id, uid, tid, LINE_KEY, str(line), int(n), db.now()))
+                    moved += 1
+                if b.get("last"):
+                    c.execute(
+                        "INSERT OR REPLACE INTO last_use(org_id,user_id,task_id,payload,at)"
+                        " VALUES (?,?,?,?,?)",
+                        (org_id, uid, tid, json.dumps(b["last"], ensure_ascii=False),
+                         b["last"].get("at") or db.now()))
+            for kind, box in ((by_task or {}).get("_말투") or {}).items():
+                for phrase, n in (box or {}).items():
+                    c.execute(
+                        "INSERT OR REPLACE INTO phrases"
+                        "(org_id,user_id,kind,phrase,count,last_at) VALUES (?,?,?,?,?,?)",
+                        (org_id, uid, kind, phrase, int(n), db.now()))
+    done.write_text(f"{db.now()} 에 DB 로 옮겼습니다. 이 파일은 되돌릴 때를 위해 남겨 둡니다.\n",
+                    encoding="utf-8")
+    db.log("개인학습 옮김", org_id=org_id, target=str(old), detail={"옮긴 값": moved})
 
 
 def _looks_personal(v: str) -> bool:
@@ -69,9 +108,34 @@ def _ok(value: Any) -> bool:
     return bool(t) and len(t) <= MAX_LEN and not _looks_personal(t)
 
 
-def _bucket(data: dict, user_id: str, task_id: str) -> dict:
-    u = data.setdefault("users", {}).setdefault(user_id or "_", {})
-    return u.setdefault(task_id or "_", {"fields": {}, "line": {}, "count": 0})
+def _conn():
+    from . import db
+    return db
+
+
+def _fields_of(org_id: str, user_id: str, task_id: str) -> dict[str, dict[str, int]]:
+    _ensure_migrated(org_id)
+    out: dict[str, dict[str, int]] = {}
+    c = _conn().connect()
+    for r in c.execute(
+            "SELECT field, value, score FROM learning"
+            " WHERE org_id=? AND user_id=? AND task_id=?",
+            (org_id, user_id or "_", task_id or "_")):
+        out.setdefault(r["field"], {})[r["value"]] = r["score"]
+    return out
+
+
+def _bump(org_id: str, user_id: str, task_id: str, field: str, value: str, by: int) -> None:
+    _ensure_migrated(org_id)
+    db = _conn()
+    with db.tx() as c:
+        c.execute(
+            "INSERT INTO learning(org_id,user_id,task_id,field,value,score,last_at)"
+            " VALUES (?,?,?,?,?,?,?)"
+            " ON CONFLICT(org_id,user_id,task_id,field,value)"
+            " DO UPDATE SET score = score + ?, last_at = ?",
+            (org_id, user_id or "_", task_id or "_", field, str(value), by, db.now(),
+             by, db.now()))
 
 
 # ---------- 배우기 ----------
@@ -79,54 +143,50 @@ def _bucket(data: dict, user_id: str, task_id: str) -> dict:
 def record_use(org_id: str, user_id: str | None, task_id: str | None,
                slots: dict | None, approval_line: list | None = None) -> None:
     """기안을 한 건 올릴 때마다 쓰인 값을 세어 둡니다."""
-    data = _load(org_id)
-    b = _bucket(data, user_id or "", task_id or "")
-    b["count"] = int(b.get("count", 0)) + 1
+    _ensure_migrated(org_id)
+    db = _conn()
+    uid, tid = user_id or "_", task_id or "_"
     for k, v in (slots or {}).items():
         if k in FIELDS and _ok(v):
-            b["fields"].setdefault(k, {})
-            key = str(v)
-            b["fields"][k][key] = int(b["fields"][k].get(key, 0)) + 1
+            _bump(org_id, uid, tid, k, str(v), 1)
     if approval_line:
         key = " → ".join(str(x) for x in approval_line)
         if _ok(key):
-            b["line"][key] = int(b["line"].get(key, 0)) + 1
+            _bump(org_id, uid, tid, LINE_KEY, key, 1)
     # '지난번처럼' 을 위해 마지막 건을 통째로 남겨 둡니다.
-    b["last"] = {"at": datetime.now().isoformat(timespec="seconds"),
-                 "slots": {k: v for k, v in (slots or {}).items() if k in FIELDS and _ok(v)},
-                 "approval_line": list(approval_line or [])}
-    _save(org_id, data)
+    last = {"at": db.now(),
+            "slots": {k: v for k, v in (slots or {}).items() if k in FIELDS and _ok(v)},
+            "approval_line": list(approval_line or [])}
+    with db.tx() as c:
+        c.execute("INSERT OR REPLACE INTO last_use(org_id,user_id,task_id,payload,at)"
+                  " VALUES (?,?,?,?,?)",
+                  (org_id, uid, tid, json.dumps(last, ensure_ascii=False), last["at"]))
 
 
 def record_correction(org_id: str, user_id: str | None, task_id: str | None,
                       before: dict, after: dict) -> list[str]:
     """서비가 제안한 값과 사람이 고친 값이 다르면, 고친 쪽을 더 세게 기억합니다.
 
-    사람이 일부러 고친 값이라 그냥 쓰인 값보다 믿을 만합니다.
+    사람이 일부러 고친 값이라 그냥 쓰인 값보다 믿을 만합니다(2점).
     """
-    data = _load(org_id)
-    b = _bucket(data, user_id or "", task_id or "")
+    uid, tid = user_id or "_", task_id or "_"
     changed = []
-
     bs, as_ = (before or {}).get("slots") or {}, (after or {}).get("slots") or {}
     for k in FIELDS:
-        new = as_.get(k)
-        if new is None or str(new) == str(bs.get(k) or ""):
+        new_v = as_.get(k)
+        if new_v is None or str(new_v) == str(bs.get(k) or "") or not _ok(new_v):
             continue
-        if not _ok(new):
-            continue
-        b["fields"].setdefault(k, {})
-        b["fields"][k][str(new)] = int(b["fields"][k].get(str(new), 0)) + 2   # 고침은 2점
+        _bump(org_id, uid, tid, k, str(new_v), 2)
         changed.append(k)
 
     bl = " → ".join(str(x) for x in ((before or {}).get(LINE_KEY) or []))
     al = " → ".join(str(x) for x in ((after or {}).get(LINE_KEY) or []))
     if al and al != bl and _ok(al):
-        b["line"][al] = int(b["line"].get(al, 0)) + 2
+        _bump(org_id, uid, tid, LINE_KEY, al, 2)
         changed.append(LINE_KEY)
-
     if changed:
-        _save(org_id, data)
+        _conn().log("개인학습 갱신", org_id=org_id, user_id=user_id,
+                    target=tid, detail={"고친 칸": changed})
     return changed
 
 
@@ -134,15 +194,13 @@ def record_correction(org_id: str, user_id: str | None, task_id: str | None,
 
 def suggest(org_id: str, user_id: str | None, task_id: str | None) -> dict:
     """다음 기안에 미리 채워 줄 값. 두 번 이상 쓰인 것만 돌려줍니다."""
-    b = _bucket(_load(org_id), user_id or "", task_id or "")
+    fields = _fields_of(org_id, user_id or "_", task_id or "_")
     out: dict[str, Any] = {}
-    for k, counts in (b.get("fields") or {}).items():
+    for k, counts in fields.items():
         top, n = _top(counts)
         if top is not None and n >= MIN_SEEN:
-            out[k] = _cast(k, top)
-    top_line, n = _top(b.get("line") or {})
-    if top_line and n >= MIN_SEEN:
-        out[LINE_KEY] = [x.strip() for x in top_line.split("→") if x.strip()]
+            out[k] = [x.strip() for x in top.split("→") if x.strip()] \
+                if k == LINE_KEY else _cast(k, top)
     return out
 
 
@@ -182,26 +240,31 @@ def _norm(t: str) -> str:
     return re.sub(r"\s+", "", (t or "")).strip()
 
 
-def _phrases(org_id: str, user_id: str | None) -> dict:
-    data = _load(org_id)
-    u = (data.get("users") or {}).get(user_id or "_") or {}
-    return (u.get("_말투") or {}).get("지난번", {})
+def _phrases(org_id: str, user_id: str | None, kind: str = "지난번") -> dict:
+    _ensure_migrated(org_id)
+    rows = _conn().connect().execute(
+        "SELECT phrase, count FROM phrases WHERE org_id=? AND user_id=? AND kind=?",
+        (org_id, user_id or "_", kind))
+    return {r["phrase"]: r["count"] for r in rows}
 
 
-def remember_phrase(org_id: str, user_id: str | None, message: str) -> None:
+def remember_phrase(org_id: str, user_id: str | None, message: str,
+                    kind: str = "지난번") -> None:
     """'지난 건을 가리킨 말'로 확인된 표현을 기억합니다.
 
     사람마다 말투가 다릅니다. 한 번 확인되면 다음부터는 규칙처럼 즉시 알아듣습니다.
-    쓸수록 그 사람 말투에 맞춰집니다.
     """
     key = _norm(message)[:40]
     if not key:
         return
-    data = _load(org_id)
-    u = data.setdefault("users", {}).setdefault(user_id or "_", {})
-    box = u.setdefault("_말투", {}).setdefault("지난번", {})
-    box[key] = int(box.get(key, 0)) + 1
-    _save(org_id, data)
+    db = _conn()
+    with db.tx() as c:
+        c.execute(
+            "INSERT INTO phrases(org_id,user_id,kind,phrase,count,last_at)"
+            " VALUES (?,?,?,?,1,?)"
+            " ON CONFLICT(org_id,user_id,kind,phrase)"
+            " DO UPDATE SET count = count + 1, last_at = ?",
+            (org_id, user_id or "_", kind, key, db.now(), db.now()))
 
 
 def wants_repeat(message: str, org_id: str | None = None,
@@ -248,8 +311,16 @@ def _ask_model(message: str) -> bool:
 
 def last_used(org_id: str, user_id: str | None, task_id: str | None) -> dict | None:
     """마지막으로 실제 올린 건의 값. '지난번처럼' 일 때만 씁니다."""
-    b = _bucket(_load(org_id), user_id or "", task_id or "")
-    return (b.get("last") or {}) or None
+    _ensure_migrated(org_id)
+    r = _conn().connect().execute(
+        "SELECT payload FROM last_use WHERE org_id=? AND user_id=? AND task_id=?",
+        (org_id, user_id or "_", task_id or "_")).fetchone()
+    if not r:
+        return None
+    try:
+        return json.loads(r["payload"])
+    except Exception:
+        return None
 
 
 def repeat_slots(org_id: str, user_id: str | None, task_id: str | None,
@@ -290,47 +361,55 @@ LABELS = {"destination": "자주 가는 곳", "item": "자주 사는 것",
 
 def summary(org_id: str, user_id: str | None = None) -> dict:
     """무엇을 배웠는지 사람이 그대로 볼 수 있게 풀어 줍니다."""
-    data = _load(org_id)
+    _ensure_migrated(org_id)
+    db = _conn()
     tasks = {t["id"]: t.get("name", t["id"]) for t in store.load_tasks()}
-    users = data.get("users") or {}
-    picked = {user_id: users.get(user_id or "_", {})} if user_id else users
+
+    sql = ("SELECT user_id, task_id, field, value, score FROM learning"
+           " WHERE org_id=?" + (" AND user_id=?" if user_id else "")
+           + " ORDER BY user_id, task_id, field, score DESC")
+    args = [org_id] + ([user_id] if user_id else [])
+
+    grouped: dict[tuple, dict[str, list]] = {}
+    for r in db.connect().execute(sql, args):
+        if r["score"] < MIN_SEEN:
+            continue
+        g = grouped.setdefault((r["user_id"], r["task_id"]), {})
+        g.setdefault(r["field"], []).append({"값": r["value"], "쓴 횟수": r["score"]})
 
     out = []
-    for uid, by_task in picked.items():
-        for tid, b in (by_task or {}).items():
-            items = []
-            for k, counts in (b.get("fields") or {}).items():
-                top = Counter(counts).most_common(KEEP)
-                vals = [{"값": v, "쓴 횟수": n} for v, n in top if n >= MIN_SEEN]
-                if vals:
-                    items.append({"항목": LABELS.get(k, k), "key": k, "값들": vals})
-            line = Counter(b.get("line") or {}).most_common(3)
-            if line:
-                items.append({"항목": LABELS[LINE_KEY], "key": LINE_KEY,
-                              "값들": [{"값": v, "쓴 횟수": n} for v, n in line if n >= MIN_SEEN]})
-            if items:
-                out.append({"user_id": uid, "task_id": tid,
-                            "업무": tasks.get(tid, tid), "올린 건수": b.get("count", 0),
-                            "배운 것": items})
-    return {"org_id": org_id, "updated": data.get("updated"), "learned": out,
-            "file": str(_path(org_id)),
+    for (uid, tid), fields in grouped.items():
+        items = [{"항목": LABELS.get(k, k), "key": k, "값들": v[:KEEP]}
+                 for k, v in fields.items()]
+        if items:
+            out.append({"user_id": uid, "task_id": tid,
+                        "업무": tasks.get(tid, tid), "배운 것": items})
+    return {"org_id": org_id, "learned": out,
+            "저장 위치": str(db.path()),
             "note": "이 자료는 이 PC 안에만 있습니다. 부서를 옮기면 'PC 옮기기'로 함께 가져갈 수 있습니다."}
 
 
 def forget(org_id: str, user_id: str | None = None,
            task_id: str | None = None, key: str | None = None) -> dict:
     """배운 것을 지웁니다. 범위를 좁혀 하나만 지울 수도 있습니다."""
-    data = _load(org_id)
-    users = data.get("users") or {}
-    if user_id is None:
-        data["users"] = {}
-    elif task_id is None:
-        users.pop(user_id or "_", None)
-    elif key is None:
-        (users.get(user_id or "_") or {}).pop(task_id, None)
-    else:
-        b = (users.get(user_id or "_") or {}).get(task_id) or {}
-        (b.get("line") if key == LINE_KEY else b.get("fields", {})).pop(key, None) \
-            if key != LINE_KEY else b.update({"line": {}})
-    _save(org_id, data)
-    return {"ok": True}
+    _ensure_migrated(org_id)      # 지운 뒤에 예전 파일이 딸려 들어오지 않도록 먼저
+    db = _conn()
+    where, args = ["org_id = ?"], [org_id]
+    if user_id:
+        where.append("user_id = ?"); args.append(user_id)
+    if task_id:
+        where.append("task_id = ?"); args.append(task_id)
+    if key:
+        where.append("field = ?"); args.append(key)
+    w = " AND ".join(where)
+    with db.tx() as c:
+        n = c.execute(f"DELETE FROM learning WHERE {w}", args).rowcount
+        if not key:
+            c.execute(f"DELETE FROM last_use WHERE {w.replace(' AND field = ?','')}",
+                      args[:len(args) - (1 if key else 0)])
+            pw = " AND ".join(x for x in where if not x.startswith("task_id") and not x.startswith("field"))
+            pa = [org_id] + ([user_id] if user_id else [])
+            c.execute(f"DELETE FROM phrases WHERE {pw}", pa)
+    db.log("개인학습 지움", org_id=org_id, user_id=user_id,
+           target=task_id or "전체", detail={"지운 값": n})
+    return {"ok": True, "지운 값": n}
