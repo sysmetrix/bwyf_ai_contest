@@ -19,4 +19,6 @@ contextBridge.exposeInMainWorld("seobiShell", {
   setRoam: (on) => ipcRenderer.send("seobi:roam", !!on),
   // 기안을 올린 뒤 인트라넷 창을 띄워 '올라갔다'를 눈으로 보여 줍니다
   openIntranet: (docNo) => ipcRenderer.send("seobi:intranet", docNo || ""),
+  // 처음 설정을 마쳤을 때 (설정 창을 닫고 캐릭터를 띄웁니다)
+  setupDone: () => ipcRenderer.send("seobi:setup-done"),
 });

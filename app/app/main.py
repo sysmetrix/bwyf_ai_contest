@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from . import (approval, credentials, drafter, engine, forms, helpdesk, intranet,
                intranet_ui, learning, llm, mailer, package, roles, rpa, store,
-               sync, transfer, understand, updater)
+               sync, system_check, transfer, understand, updater)
 from .rules import get_index, list_rule_files, warm_all
 from .version import VERSION
 
@@ -192,6 +192,69 @@ def add_user(org_id: str, body: UserBody):
 
 
 # ---------- 내 할 일(대시보드) ----------
+# ---------- 처음 설정 (위젯을 처음 켤 때) ----------
+
+class SetupDone(BaseModel):
+    skipped: bool = False        # '나중에 하기' 로 넘어간 경우
+
+
+@app.get("/api/setup/state")
+def setup_state():
+    """처음 설정이 끝났는지, 무엇이 남았는지.
+
+    위젯은 이 값을 보고 처음이면 설정 화면을, 아니면 바로 캐릭터를 띄웁니다.
+    """
+    cfg = store.load_config()
+    itr = cfg.get("intranet") or {}
+    orgs = _guard(store.list_orgs)
+    done = bool(cfg.get("setup_done"))
+    return {
+        "처음인가": not done,
+        "단계": {
+            "사양 점검": True,                       # 보여 주기만 하므로 늘 통과
+            "결재시스템 연결": bool(itr.get("enabled")),
+            "규정·서식 읽기": bool(_learned_counts()),
+            "담당자 확인": bool(orgs),
+        },
+        "연결": {"방식": itr.get("mode") or "api",
+                 "주소": itr.get("base_url"), "아이디": itr.get("user_id")},
+        "기관": orgs,
+        "사양": system_check.summary(),
+    }
+
+
+def _learned_counts() -> int:
+    try:
+        return len(intranet_ui.REGULATIONS) + len(intranet_ui.FORMS)
+    except Exception:
+        return 0
+
+
+@app.post("/api/setup/done")
+def setup_done(body: SetupDone):
+    cfg = store.load_config()
+    cfg["setup_done"] = True
+    cfg["setup_skipped"] = bool(body.skipped)
+    store._write_config_keep_comments(cfg)
+    return {"ok": True}
+
+
+@app.post("/api/setup/reset")
+def setup_reset():
+    """설정을 처음부터 다시 하고 싶을 때."""
+    cfg = store.load_config()
+    cfg.pop("setup_done", None)
+    cfg.pop("setup_skipped", None)
+    store._write_config_keep_comments(cfg)
+    return {"ok": True}
+
+
+@app.get("/api/system/check")
+def system_report():
+    """이 PC에서 돌아갈지 점검한 결과."""
+    return system_check.summary()
+
+
 # ---------- 결재시스템 연결 (설치할 때 한 번) ----------
 
 class ConnectBody(BaseModel):

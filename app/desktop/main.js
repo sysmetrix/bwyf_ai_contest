@@ -296,6 +296,41 @@ ipcMain.on("seobi:roam", (_e, on) => {
 // ---------- 트레이 ----------
 ipcMain.on("seobi:intranet", (_e, docNo) => openIntranet(docNo));
 
+// ---------- 처음 설정 ----------
+// 처음 켜면 캐릭터 대신 설정 창이 먼저 뜹니다. 주소·아이디·비밀번호를 받아
+// 서비가 그 시스템을 스스로 읽고 맞추게 하기 위해서입니다.
+let setupWin = null;
+
+async function needsSetup() {
+  try {
+    const res = await fetch(`${BASE}/api/setup/state`);
+    if (!res.ok) return false;
+    const d = await res.json();
+    return !!d["처음인가"];
+  } catch { return false; }
+}
+
+function openSetup() {
+  if (setupWin && !setupWin.isDestroyed()) { setupWin.show(); setupWin.focus(); return; }
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  setupWin = new BrowserWindow({
+    width: Math.min(820, Math.round(width * 0.9)),
+    height: Math.min(760, Math.round(height * 0.9)),
+    title: "서비 처음 설정",
+    backgroundColor: "#f4f6f8",
+    webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true },
+  });
+  setupWin.loadURL(`${BASE}/setup.html`);
+  setupWin.on("closed", () => { setupWin = null; });
+}
+
+ipcMain.on("seobi:setup-done", () => {
+  if (setupWin && !setupWin.isDestroyed()) setupWin.close();
+  if (win) { win.show(); win.focus(); }
+  setTimeout(() => say("설정이 끝났어요. 무엇이든 물어보세요", 6000, { come: false }), 600);
+});
+
+
 // ---------- 마우스 쪽으로 걸어오기 ----------
 // 사람이 부르면(트레이 '이리 와') 또는 알릴 일이 있을 때, 지금 마우스가 있는
 // 자리 가까이로 걸어갑니다. 커서를 덮지 않도록 조금 옆·아래에 섭니다.
@@ -371,6 +406,7 @@ function createTray() {
     { label: "지금 산책", click: () => roamOnce() },
     { type: "separator" },
     { label: "인트라넷 열기", click: () => openIntranet() },
+    { label: "처음 설정 다시", click: () => openSetup() },
     { type: "separator" },
     { label: "종료", click: () => app.quit() },
   ]));
@@ -401,6 +437,12 @@ app.whenReady().then(async () => {
   await ensureServer();
   createWindow();
   createTray();
+
+  // 처음 켜는 PC 면 설정 창을 먼저 띄웁니다. 두 번째부터는 캐릭터만 나옵니다.
+  if (await needsSetup()) {
+    if (win) win.hide();
+    openSetup();
+  }
   startCursorWatch();
   scheduleRoam();
   handleArgs(process.argv);

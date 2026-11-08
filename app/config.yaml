@@ -44,7 +44,7 @@ approval:
   providers:
     mock:
       type: mock
-      company_code: BWYF        # 가상 결재함 문서번호 앞자리
+      company_code: BWYF
     amaranth:
       type: amaranth_10
       base_url: https://gw.example-agency.kr/api/v1
@@ -56,8 +56,7 @@ approval:
       base_url: http://127.0.0.1:8100
       api_key_env: INTRANET_API_KEY
 intranet:
-  enabled: false   # 약속 v0.2: 인트라넷은 서무비서가 /intranet/ 으로 함께 냅니다
-                                    # 바깥 그룹웨어에 붙일 때만 true
+  enabled: false
   base_url: http://127.0.0.1:8100
   api_key_env: INTRANET_API_KEY
   org_id: bwyf
