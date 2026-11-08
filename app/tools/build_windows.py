@@ -35,7 +35,13 @@ SKIP_ORGS: set[str] = set()
 SKIP_DIRS = {".git", ".claude", ".pytest_cache", "__pycache__", "outputs", ".cache",
              "tests", "data_backups", "node_modules", "desktop",   # desktop 은 3.5단계에서 따로
              ".venv", "venv", ".idea", ".vscode"}                  # 만든 PC 의 환경은 넣지 않습니다
-SKIP_FILES = {".env", ".install_id", "server.log", "scratch_out.txt", "설치.bat", "설치.sh", "실행.bat", "render.yaml"}
+# 만든 PC 의 개인 자료는 절대 넣지 않습니다.
+SKIP_FILES = {".env", ".install_id", "server.log", "scratch_out.txt",
+              "설치.bat", "설치.sh", "실행.bat", "render.yaml",
+              "서비.db", "서비.db-wal", "서비.db-shm",      # 개인 데이터베이스
+              "개인학습.json", "개인학습.json.migrated",     # 개인 학습
+              "결재시스템지도.json", "intranet_sync.json",
+              "approval_mock.json", "history.jsonl", "done.json"}
 
 INSTALL_BAT = r'''@echo off
 chcp 65001 >nul
