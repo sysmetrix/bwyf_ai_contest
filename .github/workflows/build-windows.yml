@@ -2,13 +2,24 @@ name: 윈도우 설치판 만들기
 
 # 태그(v1.2.0 같은)를 올리거나, 깃허브 화면에서 직접 눌러 실행합니다.
 # 결과물에는 파이썬이 들어 있어 받는 PC에 파이썬을 따로 깔 필요가 없습니다.
+#
+# 두 가지를 만듭니다.
+#   기본      약 170MB. AI는 처음 설정에서 '켜기'를 누를 때 받습니다.
+#   AI 포함   약 3.6GB. 올라마와 모델까지 넣어 인터넷 없이 바로 AI를 씁니다.
+#             화면에서 실행할 때 'AI 포함'을 켜면 함께 만듭니다.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      ai:
+        description: 'AI(올라마+모델)까지 넣은 설치판도 만들기 — 30분 넘게 걸리고 3.6GB입니다'
+        type: boolean
+        default: false
 
 jobs:
   build:
+    name: 기본 설치판
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,5 +39,34 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: 서비_Windows설치판
-          path: 서비_Windows설치판_*.zip
+          path: 서비_Windows설치판_v*.zip
           if-no-files-found: error
+
+  build-ai:
+    name: AI 포함 설치판
+    # 태그를 올릴 때는 늘 만들고, 손으로 실행할 때는 'AI 포함'을 켠 경우에만.
+    if: github.event_name == 'push' || inputs.ai
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 빌드에 필요한 것 설치
+        working-directory: app
+        run: pip install -r requirements.txt
+
+      # 올라마 압축본(1.6GB)과 모델(3.3GB)을 받습니다. 빌드 스크립트가 알아서 합니다.
+      - name: 설치판 만들기 (AI 포함)
+        working-directory: app
+        run: python tools/build_windows.py --ollama --model gemma3:4b
+
+      - name: 결과물 올리기
+        uses: actions/upload-artifact@v4
+        with:
+          name: 서비_Windows설치판_AI포함
+          path: 서비_Windows설치판_AI포함_v*.zip
+          if-no-files-found: error
+          compression-level: 0   # 이미 압축된 zip 입니다. 다시 압축하면 시간만 듭니다
