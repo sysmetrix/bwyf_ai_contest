@@ -492,3 +492,72 @@ def member(user_id: str) -> dict | None:
         if m["id"] == user_id:
             return m
     return None
+
+# ---------- 로그인 ----------
+# 실제 그룹웨어처럼 아이디·비밀번호로 들어갑니다. 서무비서가 주소·아이디·비밀번호만
+# 받고 스스로 들어가 규정·서식·조직도를 찾아 배우는 흐름을 그대로 보여 주기 위해서입니다.
+DEMO_PW = "demo1234"
+SESSIONS: dict[str, str] = {}
+
+
+def member_by_login(user_id: str) -> dict | None:
+    for m in MEMBERS:
+        if m["id"] == user_id or m.get("login") == user_id or m["name"] == user_id:
+            return m
+    return None
+
+
+def check_login(user_id: str, password: str) -> dict | None:
+    m = member_by_login((user_id or "").strip())
+    return m if (m and password == DEMO_PW) else None
+
+
+def open_session(user_id: str) -> str:
+    import uuid as _uuid
+    sid = _uuid.uuid4().hex
+    SESSIONS[sid] = user_id
+    return sid
+
+
+def session_user(sid: str | None) -> dict | None:
+    return member_by_login(SESSIONS.get(sid or "", ""))
+
+
+def close_session(sid: str | None) -> None:
+    SESSIONS.pop(sid or "", None)
+
+
+LOGIN_HTML = """<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>인트라넷 로그인</title>
+<style>
+ *{box-sizing:border-box} body{margin:0;font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+  background:#eef2f7;display:grid;place-items:center;min-height:100vh;color:#24323f}
+ .box{width:min(380px,92vw);background:#fff;padding:34px 30px;border-radius:10px;
+  box-shadow:0 6px 22px #0d2b4a1a}
+ h1{margin:0 0 4px;font-size:21px}
+ p.sub{margin:0 0 22px;font-size:13px;color:#6b7b8c}
+ label{display:block;font-size:13px;margin:12px 0 5px;color:#44586b}
+ input{width:100%;padding:11px 12px;border:1px solid #ccd6e0;border-radius:6px;font-size:14px}
+ button{width:100%;margin-top:20px;padding:12px;border:0;border-radius:6px;background:#1667b5;
+  color:#fff;font-size:15px;cursor:pointer}
+ .err{margin-top:14px;padding:9px 11px;background:#fdeaea;color:#a32626;border-radius:6px;font-size:13px}
+ .hint{margin-top:20px;padding:11px;background:#f4f7fa;border-radius:6px;font-size:12px;color:#5d6e7e;line-height:1.6}
+ .hint b{color:#24323f}
+</style></head><body>
+<form class="box" method="post" action="/intranet/login">
+ <h1>인트라넷</h1>
+ <p class="sub">재단법인 부천여성청소년재단 (시연용 가상 시스템)</p>
+ <label for="uid">아이디</label>
+ <input id="uid" name="user_id" autocomplete="username" autofocus required>
+ <label for="pw">비밀번호</label>
+ <input id="pw" name="password" type="password" autocomplete="current-password" required>
+ <button type="submit">로그인</button>
+ __ERROR__
+ <div class="hint">시연용 계정입니다. 아이디 <b>u-kim</b>(직원) · <b>u-choi</b>(센터장) ·
+  <b>u-lee</b>(팀장), 비밀번호는 모두 <b>demo1234</b> 입니다.</div>
+</form></body></html>"""
+
+
+def login_html(error: str = "") -> str:
+    return LOGIN_HTML.replace("__ERROR__",
+                              f'<div class="err">{_esc(error)}</div>' if error else "")

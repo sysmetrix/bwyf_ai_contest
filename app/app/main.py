@@ -11,7 +11,8 @@ from pathlib import Path
 from urllib.parse import quote
 from datetime import date, timedelta
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import (FastAPI, File, Form, HTTPException, Query, Request,
+                     UploadFile)
 from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
                                Response)
 from fastapi.staticfiles import StaticFiles
@@ -292,7 +293,11 @@ def intranet_connect(body: ConnectBody):
             for org in store.list_orgs():
                 oid = org["id"] if isinstance(org, dict) else org
                 try:
-                    learned[oid] = {"users": store.sync_users_from_intranet(oid)}
+                    # 한 바퀴 돌아보며 '쓰는 법'을 익히고, 조직도로 역할을 맞춥니다.
+                    site = rpa.learn(oid, base, body.user_id, body.password)
+                    learned[oid] = {"users": store.sync_users_from_intranet(oid),
+                                    "사용법": rpa.describe(oid) if site.ok else
+                                              {"익힘": False, "말": site.error}}
                 except Exception as exc:
                     learned[oid] = {"error": str(exc)[:160]}
         return {"ok": True, "mode": "rpa", "base_url": base, "user_id": body.user_id,
@@ -929,11 +934,54 @@ def intranet_root():
     return RedirectResponse("/intranet/", status_code=307)
 
 
+@app.get("/intranet/login", response_class=HTMLResponse)
+def intranet_login_page(error: str = ""):
+    return HTMLResponse(intranet_ui.login_html(error))
+
+
+@app.post("/intranet/login")
+async def intranet_login(request: Request):
+    form = await request.form()
+    me = intranet_ui.check_login(str(form.get("user_id") or ""),
+                                 str(form.get("password") or ""))
+    if not me:
+        return RedirectResponse("/intranet/login?error=아이디 또는 비밀번호가 맞지 않습니다",
+                                status_code=303)
+    resp = RedirectResponse("/intranet/", status_code=303)
+    resp.set_cookie("intranet_session", intranet_ui.open_session(me["id"]),
+                    httponly=True, samesite="lax")
+    return resp
+
+
+@app.get("/intranet/logout")
+def intranet_logout(request: Request):
+    intranet_ui.close_session(request.cookies.get("intranet_session"))
+    resp = RedirectResponse("/intranet/login", status_code=303)
+    resp.delete_cookie("intranet_session")
+    return resp
+
+
 @app.get("/intranet/", response_class=HTMLResponse)
-def intranet_page(user_id: str | None = None):
-    """가상 인트라넷. 결재함은 서무비서 것을 그대로 보여 줍니다."""
+def intranet_page(request: Request, user_id: str | None = None,
+                  as_: str | None = Query(None, alias="as"),
+                  doc: str | None = None):
+    """가상 인트라넷. 결재함은 서무비서 것을 그대로 보여 줍니다.
+
+    서비 위젯에서 열 때(`as=`)는 이미 누구인지 알고 있어 바로 들어갑니다.
+    바깥에서 주소로 들어오면 실제 그룹웨어처럼 로그인을 거칩니다.
+    """
+    me = intranet_ui.session_user(request.cookies.get("intranet_session"))
+    if not me:
+        as_user = as_ or user_id
+        me = intranet_ui.member(as_user or "") if as_user else None
+        if me:
+            resp = HTMLResponse(intranet_ui.page_html(me))
+            resp.set_cookie("intranet_session", intranet_ui.open_session(me["id"]),
+                            httponly=True, samesite="lax")
+            return resp
+        return RedirectResponse("/intranet/login", status_code=303)
     try:
-        return HTMLResponse(intranet_ui.page_html(intranet_ui.member(user_id or "")))
+        return HTMLResponse(intranet_ui.page_html(me))
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc))
 
@@ -1017,6 +1065,28 @@ def learning_forget(org_id: str, user_id: str | None = None,
                     task_id: str | None = None, key: str | None = None):
     """배운 것을 지웁니다. 범위를 좁혀 하나만 지울 수도 있습니다."""
     return _guard(learning.forget, org_id, user_id, task_id, key)
+
+
+@app.get("/api/orgs/{org_id}/groupware-map")
+def groupware_map(org_id: str):
+    """서비가 그 결재시스템에서 무엇을 익혔는지 보여 줍니다."""
+    return _guard(rpa.describe, org_id)
+
+
+@app.post("/api/orgs/{org_id}/groupware-map")
+def groupware_relearn(org_id: str):
+    """다시 돌아보며 길을 새로 익힙니다. 시스템이 바뀌었을 때 씁니다."""
+    cfg = store.load_config().get("intranet") or {}
+    if (cfg.get("mode") or "api") != "rpa":
+        raise HTTPException(400, "아이디·비밀번호로 연결한 경우에만 쓸 수 있습니다")
+    base, uid = cfg.get("base_url") or "", cfg.get("user_id") or ""
+    pw = credentials.load(base, uid)
+    if not pw:
+        raise HTTPException(400, "그룹웨어 비밀번호가 보관돼 있지 않습니다")
+    res = _guard(rpa.learn, org_id, base, uid, pw)
+    if not res.ok:
+        raise HTTPException(400, res.error or "익히지 못했습니다")
+    return rpa.describe(org_id)
 
 
 @app.get("/api/version")

@@ -1,0 +1,98 @@
+org:
+  id: bwyf
+  name: 재단법인 부천여성청소년재단
+  short: 재단
+  type: 출연기관
+  example: false
+rule_layers:
+- common
+- org
+- dept
+approval:
+  line:
+  - 담당
+  - 팀장
+  - 실장
+  - 대표이사
+  thresholds:
+  - max_won: 5000000
+    approver: 실장
+  - max_won: null
+    approver: 대표이사
+  ranks:
+    0: 대표이사
+    1: 실장·관장·센터장
+    2: 부장(팀장)
+    3: 차장
+    4: 대리
+    5: 직원
+  approver_ranks:
+    대표이사: 0
+    실장: 1
+    관장: 1
+    센터장: 1
+    팀장: 2
+    부장: 2
+  default_rank: 5
+  by_rank:
+  - name: 복무·출장
+    tasks:
+    - travel_request
+    - travel_settlement
+    - annual_leave
+    - sick_leave
+    basis: 책임 권한 규정 시행세칙 별표
+    when:
+    - rank_max: 1
+      approver: 대표이사
+    - rank_min: 2
+      approver: 실장
+  - name: 외부강의 신고
+    tasks:
+    - lecture_report
+    - excess_honorarium
+    basis: 외부강의 등 신고 업무처리 지침
+    when:
+    - rank_max: 2
+      approver: 대표이사
+    - rank_min: 3
+      approver: 실장
+deadlines:
+  travel_settlement_days: 14
+  leave_request_days_before: 0
+  event_plan_days_before: 14
+  event_report_days: 7
+  lecture_report_days: 10
+allowances:
+  daily_won: 25000
+  lodging_seoul_won: 100000
+  lodging_metro_won: 80000
+  lodging_other_won: 70000
+sick_leave:
+  certificate_days: 7
+purchase:
+  single_quote_limit_won: 2000000
+  coop_required_over_won: 2000000
+terms:
+  지급 요청: 지급요청
+  구매 요청서: 구매요청서
+forms:
+  travel_settlement: forms/travel_settlement.docx
+  leave_request: forms/leave_request.docx
+  purchase_request: forms/purchase_request.docx
+  travel_request: forms/travel_request.docx
+  sick_leave: forms/sick_leave.docx
+  event_plan: forms/event_plan.docx
+  draft_document: forms/draft_document.docx
+practice_notes:
+- text: 영수증은 원본을 스캔해 PDF로 첨부합니다.
+  task: travel_settlement
+- text: 회계 담당은 매주 금요일에 지급을 처리합니다.
+  task: travel_settlement
+- text: 정산은 복귀 후 7일 안에만 내면 됩니다.
+  task: travel_settlement
+  claims:
+    deadlines.travel_settlement_days: 7
+sources:
+  기준: data/00_기관설정서.md (v0.5) 설정값 대장
+  주의: 값을 고치면 기관설정서와 함께 맞춰 주세요

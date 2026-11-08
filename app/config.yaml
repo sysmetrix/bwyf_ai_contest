@@ -44,6 +44,7 @@ approval:
   providers:
     mock:
       type: mock
+      company_code: BWYF        # 가상 결재함 문서번호 앞자리
     amaranth:
       type: amaranth_10
       base_url: https://gw.example-agency.kr/api/v1

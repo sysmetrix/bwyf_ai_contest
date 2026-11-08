@@ -97,16 +97,48 @@ def session(base_url: str, user_id: str, password: str, *,
             browser.close()
 
 
+# 그룹웨어마다 로그인 주소가 다릅니다. 흔한 자리를 차례로 보고,
+# 비밀번호 칸이 보이는 곳을 로그인 화면으로 봅니다.
+LOGIN_PATHS = ("", "/login", "/Login", "/login.do", "/auth/login", "/sso/login",
+               "/member/login", "/user/login", "#/login")
+
+
+def _find_login_page(page, base: str) -> None:
+    last = None
+    for path in LOGIN_PATHS:
+        url = base + path
+        try:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_timeout(400)
+        except Exception as exc:
+            last = exc
+            continue
+        # 비밀번호 칸이 있거나, 아이디 칸과 '로그인' 단추가 보이면 로그인 화면입니다.
+        if page.locator("input[type='password']").count():
+            return
+        if _first_visible(page, [lambda: page.get_by_role("button", name="로그인")]):
+            return
+    if last:
+        raise RuntimeError("로그인 화면을 찾지 못했습니다(주소를 확인해 주세요)")
+
+
 def _login(page, base: str, user_id: str, password: str) -> None:
-    """로그인. 칸은 화면에 보이는 이름으로 찾습니다."""
-    page.goto(f"{base}/login", wait_until="domcontentloaded")
+    """로그인. 특정 사이트에 맞추지 않고, 화면에 보이는 것으로 찾습니다."""
+    _find_login_page(page, base)
 
     # 아이디 칸: '아이디' 라벨을 먼저 보고, 없으면 흔한 이름들을 차례로 봅니다.
     ident = _first_visible(page, [
         lambda: page.get_by_label("아이디"),
+        lambda: page.get_by_label("사번"),
+        lambda: page.get_by_label("ID"),
         lambda: page.get_by_placeholder("아이디"),
-        lambda: page.locator("input[name='user_id']"),
-        lambda: page.locator("input[name='userId'], input[name='id']"),
+        lambda: page.locator("input[autocomplete='username']"),
+        lambda: page.locator("input[name*='user' i]:not([type=password])"),
+        lambda: page.locator("input[name*='id' i]:not([type=password])"),
+        lambda: page.locator("input[name*='login' i]:not([type=password])"),
+        lambda: page.locator("input[type='email']"),
+        # 마지막 수단: 비밀번호 칸 바로 앞의 글자 칸
+        lambda: page.locator("input[type='text']"),
     ])
     if ident is None:
         raise RuntimeError("로그인 화면에서 아이디 칸을 찾지 못했습니다")
@@ -134,9 +166,24 @@ def _login(page, base: str, user_id: str, password: str) -> None:
         raise RuntimeError("로그인 단추를 찾지 못했습니다")
     btn.click()
 
-    page.wait_for_load_state("networkidle")
-    if "/login" in page.url:
-        raise RuntimeError("로그인이 되지 않았습니다(아이디·비밀번호를 확인해 주세요)")
+    try:
+        page.wait_for_load_state("networkidle", timeout=12_000)
+    except Exception:
+        pass
+    page.wait_for_timeout(600)
+    still = page.locator("input[type='password']").count() > 0
+    if still:
+        msg = ""
+        for sel in (".err", "[role=alert]", ".error", ".alert"):
+            try:
+                loc = page.locator(sel).first
+                if loc.count():
+                    msg = (loc.inner_text() or "").strip()[:80]
+                    break
+            except Exception:
+                pass
+        raise RuntimeError("로그인이 되지 않았습니다"
+                           + (f": {msg}" if msg else "(아이디·비밀번호를 확인해 주세요)"))
 
 
 def _first_visible(page, candidates):
@@ -166,6 +213,19 @@ def _open_menu(page, *names: str) -> None:
 
 # ---------- 읽기 ----------
 
+def _list_rows(page):
+    """목록의 각 줄. 사이트마다 표·목록·링크 중 무엇을 쓰는지 달라 차례로 봅니다."""
+    for sel in ("button.row", "table tbody tr", "[role=row]", "ul li a", "ul li", ".list-item"):
+        try:
+            loc = page.locator(sel)
+            if loc.count() >= 2:        # 머리글 한 줄만 있는 표는 거릅니다
+                return loc
+        except Exception:
+            continue
+    return None
+
+
+
 def read_library(base_url: str, user_id: str, password: str, *,
                  menu: tuple[str, str] = ("게시판", "자료실"),
                  limit: int = 100, headless: bool = True) -> RpaResult:
@@ -175,8 +235,8 @@ def read_library(base_url: str, user_id: str, password: str, *,
         with session(base_url, user_id, password, headless=headless) as page:
             _open_menu(page, *menu)
             page.wait_for_timeout(400)
-            rows = page.locator("button.row")
-            n = min(rows.count(), limit)
+            rows = _list_rows(page)
+            n = min(rows.count(), limit) if rows else 0
             items = []
             for i in range(n):
                 row = rows.nth(i)
@@ -209,9 +269,9 @@ def read_pending(base_url: str, user_id: str, password: str, *,
         with session(base_url, user_id, password, headless=headless) as page:
             _open_menu(page, "전자결재", "결재대기문서")
             page.wait_for_timeout(400)
-            rows = page.locator("button.row")
+            rows = _list_rows(page)
             items = [(rows.nth(i).inner_text() or "").strip().splitlines()[0]
-                     for i in range(rows.count())]
+                     for i in range(rows.count())] if rows else []
             return RpaResult(ok=True, data=items, seconds=time.perf_counter() - t0,
                              meta={"count": len(items)})
     except Exception as exc:
@@ -223,12 +283,22 @@ def read_pending(base_url: str, user_id: str, password: str, *,
 def save_draft(base_url: str, user_id: str, password: str, *,
                title: str, body: str, recipient: str = "내부결재",
                form_name: str = "일반기안문", attachments: list[Path] | None = None,
-               headless: bool = True) -> RpaResult:
-    """기안을 임시저장합니다. **상신하지 않습니다.**"""
+               org_id: str | None = None, headless: bool = True) -> RpaResult:
+    """기안을 임시저장합니다. **상신하지 않습니다.**
+
+    익혀 둔 길(지도)이 있으면 그 길로 갑니다. 없으면 흔한 이름으로 찾아봅니다.
+    """
+    site = load_map(org_id) if org_id else {}
+    menu = tuple(site.get("draft") or ()) or ("전자결재", "결재작성")
+    forms = site.get("forms") or []
+    if forms and form_name not in forms:
+        # 익힌 양식 중에 비슷한 이름이 있으면 그걸 씁니다.
+        form_name = next((f for f in forms if form_name[:3] in f), forms[0])
+
     t0 = time.perf_counter()
     try:
         with session(base_url, user_id, password, headless=headless) as page:
-            _open_menu(page, "전자결재", "결재작성")
+            _open_menu(page, *menu)
             page.wait_for_timeout(400)
 
             form = _first_visible(page, [
@@ -415,3 +485,212 @@ def _scrape_me(page, user_id: str) -> dict | None:
             return {"id": user_id or name, "name": name, "dept": "",
                     "title": title, "rank": rank_of(title), "source": "rpa-me"}
     return None
+
+# ---------- 결재시스템 사용법 익히기 ----------
+# 규정을 읽는 것만으로는 기안을 올릴 수 없습니다. 그 시스템에서 **어디를 눌러**
+# 기안을 쓰는지, 양식이 무엇무엇이 있는지, 칸 이름이 무엇인지까지 알아야 합니다.
+# 한 번 돌아보며 길을 적어 두면(지도) 다음부터는 바로 그 길로 갑니다.
+
+DRAFT_MENUS = (
+    ("전자결재", "결재작성"), ("전자결재", "기안작성"), ("결재", "기안"),
+    ("전자결재",), ("기안",), ("결재문서", "기안"),
+)
+LIBRARY_MENUS = (
+    ("게시판", "자료실"), ("자료실",), ("문서함",), ("규정",),
+    ("게시판", "규정"), ("업무자료", "규정"),
+)
+
+
+def explore(base_url: str, user_id: str, password: str, *,
+            headless: bool = True) -> RpaResult:
+    """그 시스템을 한 바퀴 돌아보고 '쓰는 법'을 적어 옵니다.
+
+    적어 오는 것:
+      메뉴 목록, 규정·서식이 있는 자리, 기안을 쓰는 자리,
+      쓸 수 있는 양식 이름들, 양식의 입력 칸 이름과 단추 이름.
+    이 지도가 있으면 다음부터 헤매지 않고 바로 그 자리로 갑니다.
+    """
+    t0 = time.perf_counter()
+    try:
+        with session(base_url, user_id, password, headless=headless) as page:
+            site = {"base_url": base_url.rstrip("/"),
+                    "menus": _top_menus(page),
+                    "library": None, "draft": None,
+                    "forms": [], "fields": {}, "buttons": []}
+
+            # 1) 규정·서식이 어디에 있나
+            for path in LIBRARY_MENUS:
+                if _try_path(page, path) and _list_rows(page):
+                    site["library"] = list(path)
+                    break
+
+            # 2) 기안은 어디서 쓰나
+            for path in DRAFT_MENUS:
+                if not _try_path(page, path):
+                    continue
+                forms = _form_names(page)
+                if forms:
+                    site["draft"] = list(path)
+                    site["forms"] = forms[:30]
+                    break
+
+            # 3) 양식 하나를 열어 칸 이름과 단추를 적어 둡니다
+            if site["draft"] and site["forms"]:
+                opened = _open_form(page, site["forms"][0])
+                if opened:
+                    site["fields"] = _form_fields(page)
+                    site["buttons"] = _dialog_buttons(page)
+
+            ok = bool(site["library"] or site["draft"])
+            return RpaResult(ok=ok, data=site, seconds=time.perf_counter() - t0,
+                             error=None if ok else "자료실도 결재작성도 찾지 못했습니다",
+                             meta={"양식": len(site["forms"]), "칸": len(site["fields"])})
+    except Exception as exc:
+        return RpaResult(ok=False, error=_friendly(exc), seconds=time.perf_counter() - t0)
+
+
+def _top_menus(page) -> list[str]:
+    """맨 위·옆에 보이는 메뉴 이름을 모읍니다."""
+    out, seen = [], set()
+    for sel in ("nav button", "nav a", "header button", "[role=navigation] button",
+                "aside button", "ul li button"):
+        try:
+            loc = page.locator(sel)
+            for i in range(min(loc.count(), 40)):
+                t = (loc.nth(i).inner_text() or "").strip()
+                t = t.splitlines()[0] if t else ""
+                if 1 < len(t) <= 12 and t not in seen:
+                    seen.add(t); out.append(t)
+        except Exception:
+            continue
+    return out[:30]
+
+
+def _try_path(page, path) -> bool:
+    try:
+        _open_menu(page, *path)
+        page.wait_for_timeout(450)
+        return True
+    except Exception:
+        return False
+
+
+def _form_names(page) -> list[str]:
+    """고를 수 있는 결재 양식 이름들."""
+    out, seen = [], set()
+    for sel in ("button", "a", "li"):
+        try:
+            loc = page.locator(sel)
+            for i in range(min(loc.count(), 120)):
+                t = (loc.nth(i).inner_text() or "").strip()
+                t = t.splitlines()[0].strip() if t else ""
+                if not (3 <= len(t) <= 30) or t in seen:
+                    continue
+                if any(w in t for w in ("기안문", "품의", "요구서", "보고서", "신청서",
+                                        "결의서", "명령서", "회의록", "계획서", "사유서")):
+                    seen.add(t); out.append(t)
+        except Exception:
+            continue
+    return out
+
+
+def _open_form(page, name: str) -> bool:
+    el = _first_visible(page, [
+        lambda: page.get_by_role("button", name=name),
+        lambda: page.get_by_text(name, exact=True),
+    ])
+    if not el:
+        return False
+    el.click()
+    page.wait_for_timeout(900)
+    return True
+
+
+def _form_fields(page) -> dict:
+    """열린 양식의 입력 칸 이름과 종류."""
+    out = {}
+    for sel in ("#modal input, #modal textarea, #modal select",
+                "dialog input, dialog textarea, dialog select",
+                "form input, form textarea, form select"):
+        try:
+            loc = page.locator(sel)
+            for i in range(min(loc.count(), 60)):
+                el = loc.nth(i)
+                name = (el.get_attribute("name") or el.get_attribute("aria-label")
+                        or el.get_attribute("placeholder") or "")
+                if not name:
+                    continue
+                out[name] = (el.get_attribute("type")
+                             or el.evaluate("e => e.tagName.toLowerCase()"))
+            if out:
+                break
+        except Exception:
+            continue
+    return out
+
+
+def _dialog_buttons(page) -> list[str]:
+    out, seen = [], set()
+    for sel in ("#modal button", "dialog button", "form button"):
+        try:
+            loc = page.locator(sel)
+            for i in range(min(loc.count(), 30)):
+                t = (loc.nth(i).inner_text() or "").strip()
+                if t and len(t) <= 12 and t not in seen:
+                    seen.add(t); out.append(t)
+            if out:
+                break
+        except Exception:
+            continue
+    return out
+
+# ---------- 익힌 길을 적어 두기 ----------
+MAP_FILE = "결재시스템지도.json"
+
+
+def map_path(org_id: str):
+    from . import store
+    return store.org_dir(org_id) / MAP_FILE
+
+
+def save_map(org_id: str, site: dict) -> None:
+    import json
+    from datetime import datetime
+    site = {**site, "익힌때": datetime.now().isoformat(timespec="seconds")}
+    map_path(org_id).write_text(json.dumps(site, ensure_ascii=False, indent=2),
+                                encoding="utf-8")
+
+
+def load_map(org_id: str) -> dict:
+    import json
+    try:
+        return json.loads(map_path(org_id).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def learn(org_id: str, base_url: str, user_id: str, password: str,
+          *, headless: bool = True) -> RpaResult:
+    """한 바퀴 돌아보고 길을 적어 둡니다. 연결할 때 한 번 부르면 됩니다."""
+    res = explore(base_url, user_id, password, headless=headless)
+    if res.ok and res.data:
+        save_map(org_id, res.data)
+    return res
+
+
+def describe(org_id: str) -> dict:
+    """무엇을 익혔는지 사람이 볼 수 있게."""
+    m = load_map(org_id)
+    if not m:
+        return {"익힘": False, "말": "아직 이 시스템을 돌아보지 않았습니다"}
+    return {
+        "익힘": True,
+        "주소": m.get("base_url"),
+        "익힌때": m.get("익힌때"),
+        "메뉴": m.get("menus") or [],
+        "규정·서식 자리": " › ".join(m.get("library") or []) or "못 찾음",
+        "기안 쓰는 자리": " › ".join(m.get("draft") or []) or "못 찾음",
+        "쓸 수 있는 양식": m.get("forms") or [],
+        "양식 입력 칸": list((m.get("fields") or {}).keys()),
+        "단추": m.get("buttons") or [],
+    }

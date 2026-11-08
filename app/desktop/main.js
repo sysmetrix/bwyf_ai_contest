@@ -67,7 +67,11 @@ function place(w, h) {
 // 인트라넷은 브라우저가 아니라 서비 창으로 엽니다. 위젯만으로 끝까지 쓰기 위해서입니다.
 let intranetWin = null;
 function openIntranet(docNo) {
-  const url = `${BASE}/intranet/` + (docNo ? `?doc=${encodeURIComponent(docNo)}` : "");
+  // 위젯에서 열 때는 이미 누구인지 아니까 로그인 화면을 거치지 않습니다.
+  const who = process.env.SEOBI_USER || "u-kim";
+  const q = [`as=${encodeURIComponent(who)}`];
+  if (docNo) q.push(`doc=${encodeURIComponent(docNo)}`);
+  const url = `${BASE}/intranet/?${q.join("&")}`;
   if (intranetWin && !intranetWin.isDestroyed()) {
     intranetWin.loadURL(url); intranetWin.show(); intranetWin.focus(); return;
   }
