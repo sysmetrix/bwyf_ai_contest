@@ -21,3 +21,6 @@ data/서비.db
 data/서비.db-wal
 data/서비.db-shm
 data/orgs/*/개인학습.json.migrated
+
+# 이 PC 안에서 도는 AI (설치판 빌드가 담습니다)
+ollama/

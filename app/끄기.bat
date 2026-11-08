@@ -14,5 +14,10 @@ if exist "python\python.exe" (
 ) else (
   python run.py --stop
 )
+REM 서비가 띄운 AI 끄기 (설치판에 함께 담긴 것만. 따로 깔아 쓰시는 것은 건드리지 않습니다)
+if exist "ollama\ollama.exe" (
+  taskkill /F /IM ollama.exe >nul 2>&1
+)
+
 echo   서비를 껐습니다.
 timeout /t 2 >nul

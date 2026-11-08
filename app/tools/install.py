@@ -65,12 +65,32 @@ def _copy_program() -> None:
             if item.name == "data":  # 새 예시 기관·공통 규정은 추가하되 기존 파일은 그대로
                 _merge_new_only(item, dst)
             continue
+        if item.name == "ollama":
+            # AI 는 모델까지 합쳐 몇 GB 입니다. 이미 있는 것은 두고 없는 것만 채웁니다.
+            _copy_missing(item, dst)
+            continue
         if item.is_dir():
             if dst.exists():
                 shutil.rmtree(dst)
             shutil.copytree(item, dst)
         else:
             shutil.copy2(item, dst)
+
+
+def _copy_missing(src: Path, dst: Path) -> None:
+    """없는 파일과 크기가 다른 파일만 옮깁니다 (큰 폴더를 다시 깔 때)."""
+    n = 0
+    for p in src.rglob("*"):
+        if not p.is_file():
+            continue
+        q = dst / p.relative_to(src)
+        if q.exists() and q.stat().st_size == p.stat().st_size:
+            continue
+        q.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, q)
+        n += 1
+    if n:
+        print(f"    AI 파일 {n}개 넣음")
 
 
 def _merge_new_only(src: Path, dst: Path) -> None:

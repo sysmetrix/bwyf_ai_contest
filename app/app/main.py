@@ -19,8 +19,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import (approval, credentials, drafter, engine, forms, helpdesk, intranet,
-               intranet_ui, learning, llm, mailer, package, roles, rpa, store,
-               sync, system_check, transfer, understand, updater)
+               intranet_ui, learning, llm, mailer, ollama_setup, package, roles,
+               rpa, store, sync, system_check, transfer, understand, updater)
 from .rules import get_index, list_rule_files, warm_all
 from .version import VERSION
 
@@ -33,6 +33,8 @@ def _warm_rule_indexes():
     # 큰 규정 PDF를 첫 질문 때가 아니라 서버가 켜질 때 미리 읽어 둡니다
     threading.Thread(target=warm_all, args=([o["id"] for o in store.list_orgs(all_orgs=True)],), daemon=True).start()
     threading.Thread(target=updater.auto_on_startup, daemon=True).start()
+    # 설치판에 함께 담긴 AI 가 있으면 조용히 띄웁니다. 없으면 아무 일도 하지 않습니다
+    ollama_setup.serve_in_background()
 
 
 def _guard(fn, *args, **kwargs):
@@ -253,6 +255,33 @@ def setup_reset():
 def system_report():
     """이 PC에서 돌아갈지 점검한 결과."""
     return system_check.summary()
+
+
+# ---------- 이 PC 안의 AI (Ollama) ----------
+# 서비는 AI 없이도 다 됩니다. 켜면 문장이 부드러워집니다.
+
+class AiSetupBody(BaseModel):
+    model: str | None = None      # 비우면 config.yaml 의 기본 모델
+
+
+@app.get("/api/ai/state")
+def ai_state():
+    """AI 가 담겨 있나·깔려 있나·돌고 있나, 그리고 진행 중인 작업."""
+    d = ollama_setup.state()
+    d["사양"] = ollama_setup.can_run(d.get("쓸 모델"))
+    return d
+
+
+@app.post("/api/ai/setup")
+def ai_setup(body: AiSetupBody):
+    """깔기 → 띄우기 → 모델 확인을 뒤에서 합니다. 진행률은 /api/ai/state 로 봅니다."""
+    return ollama_setup.setup_in_background(body.model)
+
+
+@app.post("/api/ai/start")
+def ai_start():
+    """이미 깔려 있는 것을 띄우기만 합니다."""
+    return {"돌고 있음": ollama_setup.serve(wait=20.0)}
 
 
 # ---------- 결재시스템 연결 (설치할 때 한 번) ----------

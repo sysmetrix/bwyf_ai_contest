@@ -156,6 +156,13 @@ def _ollama() -> tuple[bool, list[dict]]:
         return False, []
 
 
+def _bundled_ai() -> bool:
+    """설치판에 AI 가 함께 담겨 왔는지. (순환 참조를 피해 자리만 봅니다)"""
+    from . import store
+    name = "ollama.exe" if sys.platform == "win32" else "ollama"
+    return (store.ROOT / "ollama" / name).exists()
+
+
 def _browser() -> str | None:
     """아이디·비밀번호로 그룹웨어에 들어갈 때 쓰는 브라우저."""
     if sys.platform == "win32":
@@ -225,11 +232,17 @@ def check(root: Path | None = None) -> Report:
     # 이 PC 안의 AI
     up, models = _ollama()
     names = [m.get("name", "") for m in models]
-    r.add("AI 모델", up and bool(models),
-          (", ".join(names) if names else ("켜져 있음(모델 없음)" if up else "없음")),
-          hi["모델"], "권장",
-          "ollama.com 에서 설치한 뒤 `ollama pull gemma3:4b` 를 하면 됩니다. "
-          "없어도 규칙으로 모든 기능이 동작합니다")
+    packed = _bundled_ai()
+    if names:
+        now, fix = ", ".join(names), ""
+    elif up:
+        now, fix = "켜져 있음(모델 없음)", "처음 설정의 'AI 쓰기' 에서 모델을 받으면 됩니다"
+    elif packed:
+        now, fix = "설치판에 함께 들어 있음(아직 안 켬)", "처음 설정의 'AI 쓰기' 를 누르면 바로 켜집니다"
+    else:
+        now, fix = "없음", ("처음 설정의 'AI 쓰기' 를 누르면 서비가 받아서 깔아 줍니다. "
+                           "없어도 규칙으로 모든 기능이 동작합니다")
+    r.add("AI 모델", bool(names), now, hi["모델"], "권장", fix)
 
     # 그룹웨어 자동 로그인용 브라우저
     br = _browser()
