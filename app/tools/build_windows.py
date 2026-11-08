@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -28,9 +29,12 @@ PY_VERSION = "3.14.10"
 ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / ".cache" / "build"
 APP = BUILD / "서비"
-EXAMPLE_ORGS = {"demo-agency", "demo-city"}
+# 레포에 들어 있는 기관은 모두 넣습니다. 받는 PC 에서 바로 시연할 수 있어야 하므로,
+# 예시 기관만 넣으면 실제 기관(재단) 프로필이 빠져 버립니다.
+SKIP_ORGS: set[str] = set()
 SKIP_DIRS = {".git", ".claude", ".pytest_cache", "__pycache__", "outputs", ".cache",
-             "tests", "data_backups", "node_modules", "desktop"}   # desktop 은 3.5단계에서 따로 넣습니다
+             "tests", "data_backups", "node_modules", "desktop",   # desktop 은 3.5단계에서 따로
+             ".venv", "venv", ".idea", ".vscode"}                  # 만든 PC 의 환경은 넣지 않습니다
 SKIP_FILES = {".env", ".install_id", "server.log", "scratch_out.txt", "설치.bat", "설치.sh", "실행.bat", "render.yaml"}
 
 INSTALL_BAT = r'''@echo off
@@ -66,9 +70,11 @@ def _skip(rel: Path) -> bool:
     if any(p in SKIP_DIRS for p in parts) or rel.name in SKIP_FILES or rel.suffix == ".pyc":
         return True
     if parts[:2] == ("data", "orgs"):
-        if len(parts) > 2 and parts[2] not in EXAMPLE_ORGS:
+        if len(parts) > 2 and parts[2] in SKIP_ORGS:
             return True
-        if rel.name in ("history.jsonl", "done.json") or "profile_history" in parts:
+        if rel.name in ("history.jsonl", "done.json", "개인학습.json",
+                        "결재시스템지도.json", "intranet_sync.json") \
+                or "profile_history" in parts or "packages" in parts:
             return True
     return parts[:1] == ("data",) and len(parts) > 1 and parts[1] == "orgs_deleted"
 
@@ -149,25 +155,45 @@ def build(update_url: str | None = None) -> Path:
             shutil.copy2(f, t)
         print(f"    {src.name}: {sum(1 for _ in dst.rglob('*') if _.is_file())}개 담음")
 
-    # 처음 켤 때 파이썬이 패키지를 하나하나 번역하느라 10초 넘게 걸리지 않도록 미리 번역해 둡니다
-    subprocess.run([str(pydir / "python.exe"), "-m", "compileall", "-q", str(site), str(APP / "app"), str(APP / "run.py")],
-                   check=False)
+    # 처음 켤 때 파이썬이 패키지를 하나하나 번역하느라 10초 넘게 걸리지 않도록 미리 번역해 둡니다.
+    # 윈도우용 python.exe 는 윈도우에서만 돌릴 수 있어, 다른 OS 에서 만들 때는 건너뜁니다
+    # (건너뛰어도 동작은 같고, 받는 PC 에서 처음 켤 때만 조금 느립니다).
+    if sys.platform == "win32":
+        subprocess.run([str(pydir / "python.exe"), "-m", "compileall", "-q",
+                        str(site), str(APP / "app"), str(APP / "run.py")], check=False)
+    else:
+        print("    (윈도우가 아니라 미리 번역은 건너뜁니다)")
 
     print("3.5/5 화면 위젯(Electron) 넣기")
     desk_src = ROOT / "desktop"
     if desk_src.exists() and shutil.which("npm"):
         try:
-            subprocess.run(["npm", "install", "--omit=dev", "--silent"],
-                           cwd=str(desk_src), check=True, shell=(sys.platform == "win32"))
-            for f in sorted(desk_src.rglob("*")):
-                if not f.is_file() or ".git" in f.parts:
+            # 만든 PC 에 깔린 Electron 은 그 PC 용입니다. 윈도우용을 깨끗한 자리에
+            # 따로 받아서 넣습니다.
+            stage = BUILD / "desktop_win"
+            shutil.rmtree(stage, ignore_errors=True)
+            stage.mkdir(parents=True, exist_ok=True)
+            for f in ("package.json", "main.js", "preload.js"):
+                if (desk_src / f).exists():
+                    shutil.copy2(desk_src / f, stage / f)
+            env = {**os.environ, "npm_config_platform": "win32",
+                   "npm_config_arch": "x64", "npm_config_fund": "false",
+                   "npm_config_audit": "false"}
+            subprocess.run(["npm", "install", "--omit=dev", "--silent", "--no-package-lock"],
+                           cwd=str(stage), check=True, env=env,
+                           shell=(sys.platform == "win32"))
+            exe = stage / "node_modules" / "electron" / "dist" / "electron.exe"
+            if not exe.exists():
+                raise RuntimeError("윈도우용 electron.exe 를 받지 못했습니다")
+            for f in sorted(stage.rglob("*")):
+                if not f.is_file():
                     continue
-                t = APP / "desktop" / f.relative_to(desk_src)
+                t = APP / "desktop" / f.relative_to(stage)
                 t.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(f, t)
-            print("    위젯 넣음")
+            print("    위젯 넣음 (윈도우용 electron.exe 확인)")
         except Exception as exc:
-            print(f"    [건너뜀] 위젯을 넣지 못했습니다: {str(exc)[:80]}")
+            print(f"    [건너뜀] 위젯을 넣지 못했습니다: {str(exc)[:100]}")
     else:
         print("    [건너뜀] npm 이 없어 위젯을 넣지 못했습니다")
 
