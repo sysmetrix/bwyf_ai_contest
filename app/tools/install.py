@@ -136,25 +136,32 @@ def install() -> None:
     py = DEST / "python" / "python.exe"
     pyw = DEST / "python" / "pythonw.exe"  # 검은 창 없이 실행
     icon = DEST / "web" / "seobi.ico"
+    # 바로가기는 화면 위젯을 띄웁니다. 서버는 위젯이 알아서 켭니다.
+    # 위젯이 안 들어 있는 경우에만 서버를 직접 켭니다(그때는 브라우저로 씁니다).
+    elec = DEST / "desktop" / "node_modules" / "electron" / "dist" / "electron.exe"
+    if elec.exists():
+        run_target, run_args = elec, "desktop"
+    else:
+        run_target, run_args = pyw, "run.py --browser"
+
     desktop, programs = _folders()
-    _shortcut(desktop / f"{NAME}.lnk", pyw, "run.py", icon, "서무 업무 비서 서비", minimized=False)
+    _shortcut(desktop / f"{NAME}.lnk", run_target, run_args, icon, "서무 업무 비서 서비", minimized=False)
     menu = programs / NAME
     menu.mkdir(exist_ok=True)
-    _shortcut(menu / f"{NAME}.lnk", pyw, "run.py", icon, "서무 업무 비서 서비", minimized=False)
+    _shortcut(menu / f"{NAME}.lnk", run_target, run_args, icon, "서무 업무 비서 서비", minimized=False)
     _shortcut(menu / f"{NAME} 끄기.lnk", pyw, "run.py --stop", icon, "켜져 있는 서비 끄기", minimized=False)
     _shortcut(menu / f"{NAME} 제거.lnk", py, "tools\\install.py --uninstall", icon, "서비 제거", minimized=False)
     print("  [완료] 바탕화면과 시작 메뉴에 '서비' 아이콘을 만들었습니다.")
     print("  아이콘을 누르면 서비가 켜집니다.")
+    print("  처음 켜면 설정 창이 먼저 뜹니다. 한 번만 하면 됩니다.")
     print("  화면 오른쪽 아래에 서비 캐릭터가 떠있어요.")
     print("  캐릭터를 누르면 검색창이 열립니다.")
     print("  끌 때는 캐릭터 오른쪽 클릭 → '서비 끄기'를 누르세요.\n")
-    # Desktop 앱 실행 (백엔드 서버는 자동으로 함께 시작됨)
-    desktop_app = DEST / "desktop" / "dist" / "Seobi.exe"
-    if desktop_app.exists():
-        subprocess.Popen([str(desktop_app)], cwd=str(DEST))
+    # 설치가 끝나면 바로 띄웁니다. 처음이면 설정 창이 먼저 나옵니다.
+    if elec.exists():
+        subprocess.Popen([str(elec), "desktop"], cwd=str(DEST))
     else:
-        # 빌드되지 않았으면 백엔드 서버만 실행
-        subprocess.Popen([str(pyw), "run.py"], cwd=str(DEST))
+        subprocess.Popen([str(pyw), "run.py", "--browser"], cwd=str(DEST))
 
 
 def uninstall() -> None:

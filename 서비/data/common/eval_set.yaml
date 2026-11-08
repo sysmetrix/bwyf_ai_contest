@@ -1,0 +1,21 @@
+# 모델 비교 테스트용 질문 세트 (업무 분류 정확도 측정)
+# expected: 정답 업무 id (none = 서무 업무가 아님)
+questions:
+  - {q: "다음 주 세종 출장 다녀와서 정산해야 해요", expected: travel_settlement}
+  - {q: "어제 부산 출장 갔다 왔는데 출장비 어떻게 받아요?", expected: travel_settlement}
+  - {q: "KTX 영수증 어디에 내야 하나요", expected: travel_settlement}
+  - {q: "11월 3일에 수원으로 출장 가야 하는데 뭐부터 해요?", expected: travel_request}
+  - {q: "출장 명령은 어떻게 올리나요", expected: travel_request}
+  - {q: "금요일에 하루 쉬고 싶어요", expected: annual_leave}
+  - {q: "연차 쓰려면 며칠 전에 신청해야 해요?", expected: annual_leave}
+  - {q: "12월 24일부터 2일 휴가 내려고요", expected: annual_leave}
+  - {q: "워크숍 때 쓸 물품 30만원어치 사야 해요", expected: purchase}
+  - {q: "프린터 토너 구입하려면 견적 몇 개 받아야 하나요", expected: purchase}
+  - {q: "사무용품 250만원 정도 살 건데 결재 누구까지 받아요?", expected: purchase}
+  - {q: "다음 달에 주민 설명회 행사를 열어야 해요", expected: event_hosting}
+  - {q: "워크숍 행사 기안은 며칠 전에 올려야 하나요", expected: event_hosting}
+  - {q: "이 공문 기안 올리려는데 결재는 누구까지 받아요", expected: general_approval}
+  - {q: "보고서 결재 받으려고 하는데 절차가 어떻게 돼요", expected: general_approval}
+  - {q: "몸살이 심해서 오늘 병가 내야 할 것 같아요", expected: sick_leave}
+  - {q: "병원 가야 해서 병가 신청하려고요", expected: sick_leave}
+  - {q: "오늘 점심 메뉴 추천해 줘", expected: none}

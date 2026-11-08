@@ -1,10 +1,18 @@
 @echo off
 chcp 65001 >nul
-REM 켜져 있는 서비를 끕니다.
+REM 켜져 있는 서비를 끕니다. 화면의 서비와 뒤에서 도는 서버를 함께 끕니다.
 cd /d "%~dp0"
-if exist ".venv\Scripts\python.exe" (
+
+REM 화면 위젯 끄기
+taskkill /F /IM electron.exe >nul 2>&1
+
+REM 서버 끄기 (설치판은 python\, 소스에서 쓸 때는 .venv\)
+if exist "python\python.exe" (
+  "python\python.exe" run.py --stop
+) else if exist ".venv\Scripts\python.exe" (
   ".venv\Scripts\python.exe" run.py --stop
 ) else (
-  echo   아직 설치가 안 됐습니다.
+  python run.py --stop
 )
-pause
+echo   서비를 껐습니다.
+timeout /t 2 >nul
