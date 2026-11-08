@@ -31,3 +31,6 @@ app/data/orgs/*/rules/imported/
 # 만들어진 설치판 압축파일은 올리지 않습니다 (GitHub 100MB 제한). Actions 로 만드세요.
 서비_Windows설치판_*.zip
 *.seobi
+
+# 설치판 빌드 산출물 (압축 풀린 폴더)
+/서비/
