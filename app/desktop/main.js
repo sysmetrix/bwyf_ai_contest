@@ -81,10 +81,12 @@ function openIntranet(docNo) {
     height: Math.min(860, Math.round(height * 0.92)),
     title: "인트라넷",
     backgroundColor: "#eef2f7",
+    show: false,
     webPreferences: { contextIsolation: true },
   });
   intranetWin.loadURL(url);
-  intranetWin.on("closed", () => { intranetWin = null; });
+  showFront(intranetWin);
+  intranetWin.on("closed", () => { intranetWin = null; dockBackIfIdle(); });
 }
 
 function createWindow() {
@@ -296,6 +298,20 @@ ipcMain.on("seobi:roam", (_e, on) => {
 // ---------- 트레이 ----------
 ipcMain.on("seobi:intranet", (_e, docNo) => openIntranet(docNo));
 
+// 맥에서는 독을 숨겨 두는데, 그 상태로는 새 창이 앞으로 나오지 못합니다.
+// 창을 띄우는 동안만 독을 보이게 했다가, 창을 닫으면 다시 숨깁니다.
+function showFront(w) {
+  if (process.platform === "darwin" && app.dock) app.dock.show();
+  w.once("ready-to-show", () => { w.show(); w.focus(); w.moveTop(); });
+  w.show(); w.focus();
+}
+
+function dockBackIfIdle() {
+  if (process.platform !== "darwin" || !app.dock) return;
+  const open = [setupWin, intranetWin].some((w) => w && !w.isDestroyed() && w.isVisible());
+  if (!open && state === "idle") app.dock.hide();
+}
+
 // ---------- 처음 설정 ----------
 // 처음 켜면 캐릭터 대신 설정 창이 먼저 뜹니다. 주소·아이디·비밀번호를 받아
 // 서비가 그 시스템을 스스로 읽고 맞추게 하기 위해서입니다.
@@ -327,14 +343,17 @@ function openSetup() {
     height: Math.min(760, Math.round(height * 0.9)),
     title: "서비 처음 설정",
     backgroundColor: "#f4f6f8",
+    show: false,
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true },
   });
   setupWin.loadURL(`${BASE}/setup.html`);
-  setupWin.on("closed", () => { setupWin = null; });
+  showFront(setupWin);
+  setupWin.on("closed", () => { setupWin = null; dockBackIfIdle(); });
 }
 
 ipcMain.on("seobi:setup-done", () => {
   if (setupWin && !setupWin.isDestroyed()) setupWin.close();
+  dockBackIfIdle();
   if (win) { win.show(); win.focus(); }
   setTimeout(() => say("설정이 끝났어요. 무엇이든 물어보세요", 6000, { come: false }), 600);
 });
