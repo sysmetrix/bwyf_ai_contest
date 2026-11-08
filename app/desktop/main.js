@@ -301,13 +301,22 @@ ipcMain.on("seobi:intranet", (_e, docNo) => openIntranet(docNo));
 // 서비가 그 시스템을 스스로 읽고 맞추게 하기 위해서입니다.
 let setupWin = null;
 
-async function needsSetup() {
-  try {
-    const res = await fetch(`${BASE}/api/setup/state`);
-    if (!res.ok) return false;
-    const d = await res.json();
-    return !!d["처음인가"];
-  } catch { return false; }
+function needsSetup() {
+  // ping 과 같은 방식(http.get)을 씁니다. fetch 는 일렉트론 판에 따라 없을 수 있어,
+  // 없으면 조용히 실패해서 설정 창이 안 뜨는 일이 생깁니다.
+  return new Promise((resolve) => {
+    const req = http.get(`${BASE}/api/setup/state`, { timeout: 4000 }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (c) => { body += c; });
+      res.on("end", () => {
+        try { resolve(!!JSON.parse(body)["처음인가"]); }
+        catch (e) { console.error("설정 상태를 읽지 못했습니다:", e.message); resolve(false); }
+      });
+    });
+    req.on("error", (e) => { console.error("설정 상태 확인 실패:", e.message); resolve(false); });
+    req.on("timeout", () => { req.destroy(); resolve(false); });
+  });
 }
 
 function openSetup() {
