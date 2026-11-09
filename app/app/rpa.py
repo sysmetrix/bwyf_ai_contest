@@ -105,23 +105,81 @@ LOGIN_PATHS = ("", "/login", "/Login", "/login.do", "/auth/login", "/sso/login",
                "/member/login", "/user/login", "#/login")
 
 
-def _find_login_page(page, base: str) -> None:
-    last = None
+def _login_score(scope) -> int:
+    """이 화면이 로그인 화면일 듯한 정도. 클수록 그럴듯합니다.
+
+    비밀번호 칸이 없는 로그인 화면이 있습니다. 아마란스는 첫 화면에
+    **회사코드·아이디와 '다음' 단추만** 있고, 비밀번호는 그다음에 나옵니다.
+    그래서 비밀번호 칸만 보고 판단하면 로그인 화면을 지나쳐 버립니다.
+    """
+    score = 0
+    try:
+        if scope.locator("input[type='password']").count():
+            score += 10
+    except Exception:
+        pass
+    boxes = _text_boxes(scope)
+    if boxes:
+        score += 2
+        joined = " ".join(_describe(b) for b in boxes).lower()
+        if any(w in joined for w in FIELD_WORDS["아이디"] + FIELD_WORDS["회사"]):
+            score += 3
+    if boxes and _forward_button(scope, prefer_login=True) is not None:
+        score += 4
+    return score
+
+
+def _scope(page):
+    """글자 칸이 있는 자리. 로그인 화면이 iframe 안에 들어 있는 곳이 있습니다."""
+    best, top = page, _login_score(page)
+    if top >= 10:
+        return page
+    for fr in page.frames:
+        if fr is page.main_frame:
+            continue
+        try:
+            s = _login_score(fr)
+        except Exception:
+            continue
+        if s > top:
+            best, top = fr, s
+    return best
+
+
+def _find_login_page(page, base: str):
+    """로그인 화면을 찾아 그 자리에 머뭅니다. 글자 칸이 있는 자리를 돌려줍니다.
+
+    흔한 주소를 차례로 보되, **가장 그럴듯했던 화면으로 돌아와서** 끝냅니다.
+    전에는 끝까지 못 찾으면 마지막에 열어 본 엉뚱한 주소에 머물러 있었습니다.
+    """
+    best_url, best = None, 0
     for path in LOGIN_PATHS:
         url = base + path
         try:
             page.goto(url, wait_until="domcontentloaded")
-            page.wait_for_timeout(400)
-        except Exception as exc:
-            last = exc
+            page.wait_for_timeout(600)
+        except Exception:
             continue
-        # 비밀번호 칸이 있거나, 아이디 칸과 '로그인' 단추가 보이면 로그인 화면입니다.
-        if page.locator("input[type='password']").count():
-            return
-        if _first_visible(page, [lambda: page.get_by_role("button", name="로그인")]):
-            return
-    if last:
-        raise RuntimeError("로그인 화면을 찾지 못했습니다(주소를 확인해 주세요)")
+        s = _login_score(_scope(page))
+        if s > best:
+            best_url, best = page.url, s
+        if s >= 10:                       # 비밀번호 칸까지 보이면 더 볼 것 없습니다
+            return _scope(page)
+
+    if best_url and page.url != best_url:
+        try:
+            page.goto(best_url, wait_until="domcontentloaded")
+            page.wait_for_timeout(600)
+        except Exception:
+            pass
+    elif not best_url:
+        # 하나도 그럴듯하지 않았습니다. 처음 주소로 돌아가 거기서 해 봅니다.
+        try:
+            page.goto(base, wait_until="domcontentloaded")
+            page.wait_for_timeout(600)
+        except Exception as exc:
+            raise RuntimeError(f"로그인 화면을 열지 못했습니다: {str(exc)[:80]}")
+    return _scope(page)
 
 
 # 로그인 칸을 알아보는 말들. 라벨·안내문구·name 속성을 두루 봅니다.
@@ -262,34 +320,38 @@ def _login(page, base: str, user_id: str, password: str, company: str = "",
     비밀번호** 로 화면이 나뉘는 곳도 있습니다. 그래서 한 번에 끝내려 하지 않고,
     화면이 바뀔 때마다 다시 읽어 채울 수 있는 것을 채우고 넘깁니다.
     """
-    _find_login_page(page, base)
+    at = _find_login_page(page, base)
 
     # 전에 사람이 보여 준 순서가 있으면 그것부터. 화면이 바뀌어 안 맞으면
     # 아래 '화면 읽고 채우기' 로 되돌아갑니다.
     if steps:
         try:
-            if _login_by_steps(page, steps,
+            if _login_by_steps(at, steps,
                                {"회사": company, "아이디": user_id, "비밀번호": password}):
                 return
         except Exception:
             pass
-        _find_login_page(page, base)
+        at = _find_login_page(page, base)
 
     put = {"회사": not company, "아이디": False, "비밀번호": False}
+    seen_desc = ""
     for _ in range(MAX_LOGIN_STEPS):
-        boxes = _text_boxes(page)
+        at = _scope(page)                 # 화면이 바뀌면 자리(iframe)도 바뀔 수 있습니다
+        boxes = _text_boxes(at)
         if boxes:
-            where = choose_fields([_describe(b) for b in boxes], has_company=bool(company))
+            descs = [_describe(b) for b in boxes]
+            seen_desc = " | ".join(d or "(이름 없는 칸)" for d in descs)[:160]
+            where = choose_fields(descs, has_company=bool(company))
             if company and "회사" in where and _fill(boxes[where["회사"]], company):
                 put["회사"] = True
             if "아이디" in where and _fill(boxes[where["아이디"]], user_id):
                 put["아이디"] = True
 
-        pw = _password_box(page)
+        pw = _password_box(at)
         if pw is not None and _fill(pw, password):
             put["비밀번호"] = True
 
-        btn = _forward_button(page, prefer_login=put["비밀번호"])
+        btn = _forward_button(at, prefer_login=put["비밀번호"])
         if btn is None:
             break
         try:
@@ -300,13 +362,15 @@ def _login(page, base: str, user_id: str, password: str, company: str = "",
             page.wait_for_load_state("networkidle", timeout=12_000)
         except Exception:
             pass
-        page.wait_for_timeout(600)
+        page.wait_for_timeout(800)
 
         if put["비밀번호"] and _logged_in(page):
             return
 
     if not put["아이디"]:
-        raise RuntimeError("로그인 화면에서 아이디 칸을 찾지 못했습니다")
+        raise RuntimeError(
+            "로그인 화면에서 아이디 칸을 찾지 못했습니다. "
+            f"열린 주소: {page.url[:90]} / 보인 칸: {seen_desc or '없음'}")
     if not put["비밀번호"]:
         raise RuntimeError(
             "로그인 화면에서 비밀번호 칸을 찾지 못했습니다. "

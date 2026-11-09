@@ -39,7 +39,13 @@ DEFAULT_MODEL = "gemma3:4b"
 # 공식 배포본(압축). 설치 프로그램이 아니라 풀어 쓰는 쪽을 씁니다.
 RELEASE = "v0.40.15"
 ZIP_NAME = "ollama-windows-amd64.zip"
-ZIP_URL = f"https://github.com/ollama/ollama/releases/download/{RELEASE}/{ZIP_NAME}"
+# 같은 파일을 주는 자리들. 앞에서부터 해 보고 막히면 다음으로 넘어갑니다.
+ZIP_URLS = (
+    f"https://github.com/ollama/ollama/releases/download/{RELEASE}/{ZIP_NAME}",
+    f"https://objects.githubusercontent.com/github-production-release-asset/{ZIP_NAME}",
+    f"https://ollama.com/download/{ZIP_NAME}",
+)
+ZIP_URL = ZIP_URLS[0]
 
 
 # ---------- 자리 ----------
@@ -200,27 +206,69 @@ def _say(step: str, *, pct: float | None = None, note: str = "",
 
 # ---------- 내려받아 풀기 ----------
 
+def _prepared_zip() -> Path | None:
+    """사람이 미리 받아 둔 압축본 찾기. 기관 망이 막혀 있을 때 쓰는 길입니다."""
+    for d in (home(), store.ROOT, store.ROOT.parent, Path.home() / "Downloads"):
+        try:
+            p = d / ZIP_NAME
+            if p.exists() and p.stat().st_size > 50_000_000:
+                return p
+        except Exception:
+            continue
+    return None
+
+
 def download(progress: Callable[[float, str], None] | None = None) -> Path:
-    """공식 압축본을 받아 `서비/ollama` 에 풉니다. 관리자 권한이 필요 없습니다."""
+    """올라마를 `서비/ollama` 에 풉니다. 관리자 권한이 필요 없습니다.
+
+    먼저 **미리 받아 둔 압축본**이 있는지 봅니다. 공공기관 망에서는 GitHub
+    내려받기가 막혀 있는 경우가 많습니다(504). 그때는 인터넷 되는 PC 에서
+    받아 `서비\\ollama\\` 에 넣어 두면 그대로 씁니다.
+    """
     import httpx
 
     if sys.platform != "win32":
         raise RuntimeError("윈도우용 압축본입니다. 맥에서는 ollama.com 에서 직접 받으세요")
 
     home().mkdir(parents=True, exist_ok=True)
-    tmp = home() / (ZIP_NAME + ".part")
-    got, total = 0, 0
-    with httpx.stream("GET", ZIP_URL, follow_redirects=True, timeout=60.0) as r:
-        r.raise_for_status()
-        total = int(r.headers.get("content-length") or 0)
-        with tmp.open("wb") as f:
-            for chunk in r.iter_bytes(1 << 20):
-                f.write(chunk)
-                got += len(chunk)
-                if progress and total:
-                    progress(got / total * 100, f"{got/1e6:.0f} / {total/1e6:.0f} MB")
     z = home() / ZIP_NAME
-    tmp.replace(z)
+
+    local = _prepared_zip()
+    if local:
+        if progress:
+            progress(100.0, f"받아 두신 파일을 씁니다: {local.name}")
+        if local != z:
+            shutil.copy2(local, z)
+    else:
+        tmp = home() / (ZIP_NAME + ".part")
+        errs = []
+        for url in ZIP_URLS:
+            try:
+                got, total = 0, 0
+                with httpx.stream("GET", url, follow_redirects=True, timeout=60.0) as r:
+                    r.raise_for_status()
+                    total = int(r.headers.get("content-length") or 0)
+                    with tmp.open("wb") as f:
+                        for chunk in r.iter_bytes(1 << 20):
+                            f.write(chunk)
+                            got += len(chunk)
+                            if progress and total:
+                                progress(got / total * 100,
+                                         f"{got/1e6:.0f} / {total/1e6:.0f} MB")
+                if got < 50_000_000:
+                    raise RuntimeError(f"받은 크기가 너무 작습니다 ({got/1e6:.0f}MB)")
+                tmp.replace(z)
+                break
+            except Exception as exc:
+                errs.append(f"{url.split('/')[2]}: {str(exc)[:60]}")
+                tmp.unlink(missing_ok=True)
+        else:
+            raise RuntimeError(
+                "AI 프로그램을 받지 못했습니다. 기관 망이 막고 있는 것 같습니다.\n"
+                f"({' / '.join(errs)})\n"
+                "인터넷 되는 PC 에서 아래 파일을 받아 "
+                f"{home()} 폴더에 넣고 다시 눌러 주세요.\n{ZIP_URLS[0]}\n"
+                "또는 'AI 포함 설치판' 을 받으시면 이 과정이 아예 없습니다.")
 
     if progress:
         progress(100.0, "푸는 중…")

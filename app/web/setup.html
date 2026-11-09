@@ -189,7 +189,9 @@
         `<div class="bar"><i style="width:${Math.max(2, j.퍼센트)}%"></i></div>`;
       out.push(`${esc(j.단계)} ${j.퍼센트 == null ? "" : esc(j.퍼센트) + "%"} ${esc(j.설명 || "")}${pct}`);
     }
-    if (j.오류) out.push(`<span class="no">${esc(j.오류)}</span><br>AI 없이도 모든 기능이 됩니다. 넘어가셔도 좋습니다.`);
+    if (j.오류) out.push(
+      `<span class="no">${esc(j.오류).replace(/\n/g, "<br>")}</span>` +
+      `<br><br>AI 없이도 <b>모든 기능이 됩니다.</b> 'AI 없이 쓰기' 로 넘어가셔도 좋습니다.`);
     return out.join("<br>");
   }
 
