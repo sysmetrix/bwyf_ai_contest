@@ -293,6 +293,7 @@ class ConnectBody(BaseModel):
     user_id: str = ""         # rpa 일 때 그룹웨어 아이디
     password: str = ""        # rpa 일 때 비밀번호. 파일에 적지 않고 저장소에 맡깁니다
     org_id: str = ""          # 결재시스템 쪽 기관 코드
+    company: str = ""         # 로그인 첫 화면에서 먼저 넣는 회사코드(아마란스 등)
     learn: bool = True        # 연결되면 바로 읽어 들일지
 
 
@@ -319,10 +320,41 @@ def intranet_rpa_test(body: ConnectBody):
     ok, why = rpa.available()
     if not ok:
         raise HTTPException(400, why)
-    res = rpa.read_pending(body.base_url, body.user_id, body.password, headless=True)
+    res = rpa.read_pending(body.base_url, body.user_id, body.password,
+                           company=body.company.strip(), headless=True)
     if not res.ok:
         raise HTTPException(400, res.error or "로그인하지 못했습니다")
     return {"ok": True, "결재대기": res.data, "seconds": round(res.seconds, 1)}
+
+
+class WatchLoginBody(BaseModel):
+    org_id: str = ""
+    base_url: str = ""
+    user_id: str = ""
+    company: str = ""
+
+
+@app.post("/api/intranet/rpa/watch_login")
+def intranet_watch_login(body: WatchLoginBody):
+    """로그인 한 번 보여주기 — 창이 뜨면 평소처럼 들어가시면 서비가 순서를 배웁니다.
+
+    서비가 스스로 못 들어가는 그룹웨어를 위한 길입니다.
+    비밀번호 값은 적지 않습니다. 어느 칸이 비밀번호 칸인지만 적습니다.
+    """
+    ok, why = rpa.available()
+    if not ok:
+        raise HTTPException(400, why)
+    cfg = store.load_config().get("intranet") or {}
+    org_id = body.org_id.strip() or (store.list_orgs() or [{}])[0].get("id", "")
+    base = (body.base_url.strip() or cfg.get("base_url") or "").rstrip("/")
+    if not org_id or not base:
+        raise HTTPException(400, "기관과 그룹웨어 주소가 필요합니다")
+    res = rpa.watch_login(org_id, base,
+                          user_id=body.user_id.strip() or (cfg.get("user_id") or ""),
+                          company=body.company.strip() or (cfg.get("company") or ""))
+    if not res.ok:
+        raise HTTPException(400, res.error or "배우지 못했습니다")
+    return {"ok": True, "기관": org_id, **(res.data or {})}
 
 
 @app.get("/api/intranet/status")
@@ -370,7 +402,8 @@ def intranet_connect(body: ConnectBody):
             raise HTTPException(400, why)
         if not body.user_id.strip() or not body.password:
             raise HTTPException(400, "그룹웨어 아이디와 비밀번호를 입력해 주세요")
-        probe = rpa.read_pending(base, body.user_id, body.password, headless=True)
+        probe = rpa.read_pending(base, body.user_id, body.password,
+                                 company=body.company.strip(), headless=True)
         if not probe.ok:
             raise HTTPException(400, probe.error or "로그인하지 못했습니다")
         saved, note = credentials.save(base, body.user_id, body.password)
@@ -378,6 +411,7 @@ def intranet_connect(body: ConnectBody):
         cfg["intranet"] = {**(cfg.get("intranet") or {}), "enabled": True, "mode": "rpa",
                            "base_url": base, "user_id": body.user_id,
                            "org_id": body.org_id.strip() or "",
+                           "company": body.company.strip(),
                            "use_regulations": True, "use_forms": True}
         store._write_config_keep_comments(cfg)
         learned = {}
@@ -386,7 +420,8 @@ def intranet_connect(body: ConnectBody):
                 oid = org["id"] if isinstance(org, dict) else org
                 try:
                     # 한 바퀴 돌아보며 '쓰는 법'을 익히고, 조직도로 역할을 맞춥니다.
-                    site = rpa.learn(oid, base, body.user_id, body.password)
+                    site = rpa.learn(oid, base, body.user_id, body.password,
+                                     company=body.company.strip())
                     learned[oid] = {"users": store.sync_users_from_intranet(oid),
                                     "사용법": rpa.describe(oid) if site.ok else
                                               {"익힘": False, "말": site.error}}
@@ -1175,7 +1210,8 @@ def groupware_relearn(org_id: str):
     pw = credentials.load(base, uid)
     if not pw:
         raise HTTPException(400, "그룹웨어 비밀번호가 보관돼 있지 않습니다")
-    res = _guard(rpa.learn, org_id, base, uid, pw)
+    res = _guard(rpa.learn, org_id, base, uid, pw,
+                 company=cfg.get("company") or "")
     if not res.ok:
         raise HTTPException(400, res.error or "익히지 못했습니다")
     return rpa.describe(org_id)

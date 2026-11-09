@@ -367,7 +367,7 @@ def sync_users_from_intranet(org_id: str) -> dict:
         if not pw:
             return {"ok": False, "count": 0,
                     "error": "그룹웨어 비밀번호가 보관돼 있지 않습니다. 연결 설정을 다시 해 주세요"}
-        res = rpa.read_members(base, uid, pw)
+        res = rpa.read_members(base, uid, pw, company=cfg.get("company") or "")
         if not res.ok:
             return {"ok": False, "count": 0, "error": res.error}
         members = res.data or []
